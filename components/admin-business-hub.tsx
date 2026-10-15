@@ -569,7 +569,11 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                           <td className="py-3.5 px-4 min-w-[220px]">
                             <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                               <span>{b.title || "Unnamed Business"}</span>
-                              {b.verified && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="Verified" />}
+                              {b.verified && (
+                                <span title="Verified">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                </span>
+                              )}
                             </div>
                             <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                               <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">

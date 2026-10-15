@@ -1,0 +1,2585 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import {
+  X,
+  MapPin,
+  Briefcase,
+  BadgeCheck,
+  Phone,
+  Mail,
+  Send,
+  CheckCircle,
+  User,
+  Settings,
+  Edit,
+  Trash2,
+  Check,
+  ShieldAlert,
+  Sparkles,
+  Lock,
+  MessageCircle,
+  AlertCircle,
+  Star,
+  Globe,
+  Image as ImageIcon,
+  Plus,
+  Minus,
+} from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import Image from "next/image";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import { VerificationBadge, PremiumBadge } from "./ui-extras";
+import { AdDescription } from "./ad-description";
+
+const AdMap = dynamic(() => import("./map-component"), { ssr: false });
+import { getLocalProfile } from "@/lib/profile-utils";
+import { trackAdClick, trackAdView, trackCallClick, trackWhatsAppClick } from "@/lib/analytics-utils";
+import { useAuth } from "@/lib/auth";
+import { getStoredAds, saveStoredAds, deleteAd } from "@/lib/data";
+import { isCustomerReviewOrGarbage } from "@/lib/clean-ad";
+
+interface Ad {
+  id: string;
+  userId: string;
+  title: string;
+  category: string;
+  location: string;
+  description: string;
+  verified: boolean;
+  isPremium: boolean;
+  isSponsor: boolean;
+  image: string | null;
+  address?: string;
+  phone?: string;
+  telephone?: string;
+  landline?: string;
+  website?: string;
+  plan?: string;
+  isVerified?: boolean;
+  isRecommended?: boolean;
+  isLockedLevel1?: boolean;
+  whatsapp?: string;
+  email?: string;
+  socialTikTok?: string;
+  tiktok?: string;
+  socialX?: string;
+  twitter?: string;
+  x?: string;
+  socialInstagram?: string;
+  instagram?: string;
+  socialFacebook?: string;
+  facebook?: string;
+  socialYoutube?: string;
+  youtube?: string;
+  socialLinkedin?: string;
+  linkedin?: string;
+  pinterest?: string;
+  threads?: string;
+  telegram?: string;
+  socialLinks?: string;
+  tradingHours?: string;
+  servicesOffered?: string;
+  suburb?: string;
+  serviceAreas?: Array<{ province: string; town: string; suburb?: string }>;
+  isClaimed?: boolean;
+  preferredContact?: string;
+  showCallOption?: boolean;
+  isGoogleImport?: boolean;
+  isSpotlight?: boolean;
+  isBannerPlacement?: boolean;
+  isVideoPromo?: boolean;
+}
+
+interface AdDetailModalProps {
+  ad: Ad | null;
+  onClose: () => void;
+}
+
+export default function AdDetailModal({ ad, onClose }: AdDetailModalProps) {
+  const { user } = useAuth();
+  console.log("DEBUG: user in AdDetailModal", user);
+  const isAdmin = user?.role === "ADMIN" || user?.email?.toLowerCase() === "nicholauscostochetty@gmail.com" || user?.email?.toLowerCase() === "admin";
+
+  const [guestName, setGuestName] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
+  const [guestEmail, setGuestEmail] = useState("");
+  const [guestCountryCode, setGuestCountryCode] = useState("+27");
+  const [guestWhatsapp, setGuestWhatsapp] = useState("");
+  const [guestMessage, setGuestMessage] = useState("");
+  const [msgSuccess, setMsgSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Helper to get real recipient email from ad data
+  const getRecipientEmail = () => {
+    if (ad?.email) return ad.email.toLowerCase().trim();
+    if (ad?.userId === "u1") return "admin";
+    if (ad?.userId === "u2") return "petrusjvr@mweb.co.za";
+    if (ad?.userId === "u3") return "sarah.jones@example.co.za";
+    if (ad?.userId && ad?.userId.includes("@")) return ad.userId.toLowerCase().trim();
+    return ad?.email || "info@searchbiz.co.za";
+  };
+
+  // Messaging State
+  const [isMessaging, setIsMessaging] = useState(false);
+  const [directMessageText, setDirectMessageText] = useState("");
+
+  // Claiming State
+  const [isClaiming, setIsClaiming] = useState(false);
+  const [claimStep, setClaimStep] = useState(1);
+  const [claimSenderName, setClaimSenderName] = useState("");
+  const [claimSenderPhone, setClaimSenderPhone] = useState("");
+  const [claimSenderEmail, setClaimSenderEmail] = useState("");
+  const [claimIntention, setClaimIntention] = useState("level2"); // "level2", "remove_listing"
+  const [claimL2Verified, setClaimL2Verified] = useState(true);
+  const [claimL2Extra, setClaimL2Extra] = useState(false);
+  const [claimL2Domain, setClaimL2Domain] = useState(false);
+  const [claimL2Listings, setClaimL2Listings] = useState(false);
+  const [claimL2ListingCount, setClaimL2ListingCount] = useState(1);
+
+  // Calculated Price for Claim Level 2 Interactive Builder
+  let claimCalculatedMonthly = 0;
+  let claimCalculatedAnnual = 0;
+  if (claimL2Verified) claimCalculatedMonthly += 199;
+  if (claimL2Extra) claimCalculatedMonthly += 199;
+  if (claimL2Listings) claimCalculatedMonthly += 199 * claimL2ListingCount;
+  if (claimL2Domain) claimCalculatedAnnual += 99;
+
+  const claimHasSelection = claimL2Verified || claimL2Extra || claimL2Domain || claimL2Listings;
+
+  let claimDisplayPrice = "R0.00";
+  if (claimHasSelection) {
+    const parts = [];
+    if (claimCalculatedMonthly > 0) parts.push(`R${claimCalculatedMonthly.toFixed(2)}/mo`);
+    if (claimCalculatedAnnual > 0) parts.push(`R${claimCalculatedAnnual.toFixed(2)}/yr`);
+    claimDisplayPrice = parts.join(" + ");
+  }
+  const [claimRemovalReason, setClaimRemovalReason] = useState("Do not want public directory listing");
+  const [claimMessage, setClaimMessage] = useState("");
+  const [claimIdDoc, setClaimIdDoc] = useState("");
+  const [claimCipc, setClaimCipc] = useState("");
+  const [claimSars, setClaimSars] = useState("");
+  const [claimProofOfAddress, setClaimProofOfAddress] = useState("");
+  const [claimBankStatement, setClaimBankStatement] = useState("");
+  
+  const [isScanningDocs, setIsScanningDocs] = useState(false);
+  const [scanResultDocs, setScanResultDocs] = useState<"clean" | "malware" | null>(null);
+
+  // Report Ad State
+  const [isReportingAd, setIsReportingAd] = useState(false);
+  const [reportReason, setReportReason] = useState("Business permanently closed or stopped operating");
+  const [reportComments, setReportComments] = useState("");
+  const [reporterName, setReporterName] = useState("");
+  const [reporterEmail, setReporterEmail] = useState("");
+  const [reporterPhone, setReporterPhone] = useState("");
+  const [reportSuccess, setReportSuccess] = useState(false);
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && isReportingAd) {
+      const session = localStorage.getItem("searchbiz_session");
+      if (session) {
+        try {
+          const parsed = JSON.parse(session);
+          if (parsed.email) {
+            setReporterEmail(parsed.email);
+            setReporterName(parsed.fullName || parsed.email.split("@")[0]);
+            if (parsed.phone) setReporterPhone(parsed.phone);
+          }
+        } catch (e) {}
+      }
+    }
+  }, [isReportingAd]);
+
+  const handleSendAdReport = async () => {
+    if (!reporterName || !reporterEmail) {
+      alert("Please provide your name and email address to submit the report.");
+      return;
+    }
+
+    if (!ad) return;
+
+    setIsSubmittingReport(true);
+
+    const reportContent = `[UNVERIFIED AD REPORT / CLOSED BUSINESS]
+--------------------------------------------------
+🚨 REPORT SUMMARY:
+• Ad ID Number: ${ad.id}
+• Listing Title: ${ad.title}
+• Industry Sector: ${ad.category}
+• Primary Region: ${ad.location} ${ad.suburb ? `(${ad.suburb})` : ''}
+• Physical Address: ${ad.address || "N/A"}
+• Phone Number: ${ad.phone || "N/A"}
+• Email Address: ${ad.email || "N/A"}
+• Listing Status: Unclaimed & Unverified Listing
+
+--------------------------------------------------
+📋 REPORT REASON:
+${reportReason}
+
+👤 REPORTER DETAILS:
+• Name: ${reporterName}
+• Email: ${reporterEmail}
+• Contact Phone: ${reporterPhone || "N/A"}
+
+💬 REPORTER COMMENTS:
+${reportComments || "No additional comments provided."}
+--------------------------------------------------
+ADMIN ACTION REQUIRED: Search for Ad ID [${ad.id}] in Admin Dashboard to inspect, update, or remove this listing.`;
+
+    const finalReporterEmail = reporterEmail.toLowerCase().trim();
+    const reportMessageObj = {
+      id: `msg_${Date.now()}_report`,
+      threadId: [finalReporterEmail, "admin", ad.id].sort().join("_"),
+      adId: ad.id,
+      adTitle: ad.title,
+      senderEmail: finalReporterEmail,
+      senderName: reporterName,
+      recipientEmail: "admin",
+      content: reportContent,
+      timestamp: new Date().toLocaleString(),
+      read: false,
+      reported: true,
+      reportedBy: reporterName,
+      reportReason: reportReason,
+    };
+
+    if (typeof window !== "undefined") {
+      const storedStr = localStorage.getItem("searchbiz_messages_v1");
+      let existing = [];
+      if (storedStr) {
+        try {
+          existing = JSON.parse(storedStr);
+        } catch (e) {}
+      }
+      existing.push(reportMessageObj);
+      localStorage.setItem("searchbiz_messages_v1", JSON.stringify(existing));
+      window.dispatchEvent(new CustomEvent("searchbiz_messages_updated"));
+    }
+
+    try {
+      const storageRes = await fetch("/api/storage?claimsOnly=true");
+      let currentStorage = { claimRequests: [], messages: [] };
+      if (storageRes.ok) {
+        currentStorage = await storageRes.json();
+      }
+
+      const reportStorageObj = {
+        id: `report_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        adId: ad.id,
+        adTitle: ad.title,
+        adCity: ad.address || ad.location || "Unknown",
+        adProvince: ad.location || "Gauteng",
+        adCategory: ad.category || "Other",
+        senderEmail: finalReporterEmail,
+        senderName: reporterName,
+        intention: "report_ad",
+        message: `REPORT REASON: ${reportReason} | ${reportComments || "No comments"}`,
+        documents: {},
+        status: "PENDING",
+        createdAt: new Date().toISOString()
+      };
+
+      const updatedClaimRequests = [
+        ...(Array.isArray(currentStorage.claimRequests) ? currentStorage.claimRequests : []),
+        reportStorageObj
+      ];
+
+      const updatedMessages = [
+        ...(Array.isArray(currentStorage.messages) ? currentStorage.messages : []),
+        reportMessageObj
+      ];
+
+      await fetch("/api/storage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          claimRequests: updatedClaimRequests,
+          messages: updatedMessages
+        })
+      });
+    } catch (err) {
+      console.error("Failed to post report to server storage:", err);
+    }
+
+    setIsSubmittingReport(false);
+    setReportSuccess(true);
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && isClaiming) {
+      const session = localStorage.getItem("searchbiz_session");
+      if (session) {
+        try {
+          const parsed = JSON.parse(session);
+          if (parsed.email) {
+            setClaimSenderEmail(parsed.email);
+            setClaimSenderName(parsed.fullName || parsed.email.split("@")[0]);
+          }
+        } catch (e) {}
+      }
+    }
+  }, [isClaiming]);
+
+  // Admin Override Editing States
+  const [isAdminEditing, setIsAdminEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editWhatsapp, setEditWhatsapp] = useState("");
+  const [editImage, setEditImage] = useState("");
+  const [editVerified, setEditVerified] = useState(false);
+  const [editIsPremium, setEditIsPremium] = useState(false);
+  const [editIsSponsor, setEditIsSponsor] = useState(false);
+  const [editFixedPosition, setEditFixedPosition] = useState("standard");
+  const [editShowCallOption, setEditShowCallOption] = useState(true);
+  const [editServicesOffered, setEditServicesOffered] = useState("");
+  const [isScanningImage, setIsScanningImage] = useState(false);
+  const [scanResult, setScanResult] = useState<"clean" | "malware" | null>(null);
+
+  useEffect(() => {
+    if (ad) {
+      Promise.resolve().then(() => {
+        setEditTitle(ad.title || "");
+        setEditDescription(ad.description || "");
+        setEditCategory(ad.category || "");
+        setEditLocation(ad.location || "");
+        setEditPhone(ad.phone || "");
+        setEditEmail(ad.email || "");
+        setEditWhatsapp(ad.whatsapp || "");
+        setEditImage(ad.image || "");
+        setEditVerified(ad.verified ?? false);
+        setEditIsPremium(ad.isPremium ?? false);
+        setEditIsSponsor(ad.isSponsor ?? false);
+        setEditFixedPosition((ad as any).fixedPosition || "standard");
+        setEditShowCallOption(ad.showCallOption ?? true);
+        setEditServicesOffered(ad.servicesOffered || "");
+        setIsAdminEditing(false);
+      });
+    }
+  }, [ad]);
+
+  // Check if owner has hidden their email
+  const ownerProfile = ad ? getLocalProfile(ad.userId) : null;
+  const isEmailHidden = ownerProfile ? ownerProfile.hideEmail : false;
+
+  // Track ad click/view event
+  useEffect(() => {
+    if (ad && ad.id) {
+      trackAdClick(
+        ad.id,
+        ad.title,
+        ad.category,
+        "South Africa",
+        ad.location || "All Areas",
+      );
+      trackAdView(
+        ad.id,
+        ad.title,
+        ad.category,
+        ad.location || "All Areas",
+      );
+    }
+  }, [ad]);
+
+  const handleSecureDocUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIsScanningDocs(true);
+      setScanResultDocs(null);
+      // Real Deep Security & Malware Scan via Binary Byte Checking
+      import("@/lib/security-scanner").then(async ({ scanFileSecurity }) => {
+        const result = await scanFileSecurity(file);
+        import("@/lib/analytics-utils").then(({ trackUpload }) => {
+          trackUpload(file.name, file.size, result);
+        });
+        setIsScanningDocs(false);
+        setScanResultDocs(result);
+        if (result === "clean") {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              setter(event.target.result as string);
+            }
+          };
+          reader.readAsDataURL(file);
+        } else {
+          setter("");
+        }
+      });
+    }
+  };
+
+  if (!ad) return null;
+
+  // Phone fallback rule: Phone -> Telephone -> WhatsApp shown as Phone Number
+  const resolvedDisplayPhone = (
+    ad.phone ||
+    ad.telephone ||
+    ad.landline ||
+    ad.whatsapp ||
+    ""
+  ).trim();
+
+  // Level 2 Unlock check: Only unlocked once upgraded by Admin to Level 2 (R199/mo)
+  const isLevel2Unlocked = Boolean(
+    (editIsPremium || ad.isPremium || ad.isSponsor || ad.plan === "PREMIUM") &&
+      (editVerified || ad.verified || ad.isVerified || ad.isClaimed === true) &&
+      (ad as any).isLockedLevel1 !== true
+  );
+
+  const handleAdminUnlockLevel2 = async (unlock: boolean) => {
+    setEditVerified(unlock);
+    setEditIsPremium(unlock);
+    const updatedFields = unlock
+      ? {
+          verified: true,
+          isVerified: true,
+          isRecommended: true,
+          isPremium: true,
+          isClaimed: true,
+          isLockedLevel1: false,
+          plan: "PREMIUM",
+          status: "approved",
+          approvalStatus: "approved",
+          isApproved: true,
+          adminApproved: true,
+        }
+      : {
+          verified: false,
+          isVerified: false,
+          isRecommended: false,
+          isPremium: false,
+          isClaimed: false,
+          isLockedLevel1: true,
+          plan: "free",
+        };
+
+    const currentAds = getStoredAds();
+    saveStoredAds(
+      currentAds.map((item) =>
+        item.id === ad.id ? { ...item, ...updatedFields } : item
+      )
+    );
+    Object.assign(ad, updatedFields);
+
+    try {
+      await fetch("/api/bot/ad", {
+        method: unlock ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          unlock
+            ? { action: "upgrade", id: ad.id, updates: updatedFields }
+            : { id: ad.id, ...updatedFields }
+        ),
+      });
+    } catch (e) {
+      console.error("Failed to sync Level 2 status with server:", e);
+    }
+  };
+
+  const handleAdminSave = () => {
+    const currentAds = getStoredAds();
+    const updated = currentAds.map((item) => {
+      if (item.id === ad.id) {
+        return {
+          ...item,
+          title: editTitle,
+          description: editDescription,
+          category: editCategory,
+          location: editLocation,
+          phone: editPhone,
+          email: editEmail,
+          whatsapp: editWhatsapp,
+          image: editImage || null,
+          verified: editVerified,
+          isPremium: editIsPremium,
+          isSponsor: editIsSponsor,
+          fixedPosition: editFixedPosition,
+          showCallOption: editShowCallOption,
+          servicesOffered: editServicesOffered,
+        };
+      }
+      return item;
+    });
+
+    saveStoredAds(updated);
+    alert("Listing database changes saved successfully!");
+    setIsAdminEditing(false);
+    onClose();
+  };
+
+  const handleAdminDelete = () => {
+    if (
+      confirm(
+        `ADMIN ACTIONS WARNING: Are you sure you want to PERMANENTLY REMOVE AND PURGE "${ad.title}"?`,
+      )
+    ) {
+      deleteAd(ad.id, true);
+      alert("Modified successfully. PURGED from all directories.");
+      onClose();
+    }
+  };
+
+  const handleSendSecureMessage = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
+    const isRegistered =
+      typeof window !== "undefined" &&
+      !!localStorage.getItem("searchbiz_session");
+
+    if (isRegistered) {
+      if (!directMessageText.trim()) return;
+      const session = localStorage.getItem("searchbiz_session");
+      if (session) {
+        const userSession = JSON.parse(session);
+        if (userSession && userSession.id !== ad?.userId) {
+          import("@/lib/profile-utils").then(({ getLocalProfile }) => {
+            const profile = getLocalProfile(userSession.id, userSession.email);
+            let senderName = userSession.email.split("@")[0];
+            if (profile) {
+              if (profile.displayName) senderName = profile.displayName;
+              else if (profile.businessName) senderName = profile.businessName;
+              else if (profile.fullName)
+                senderName = `${profile.fullName} ${profile.surname}`.trim();
+            }
+
+            const recipientEmail =
+              ad?.email || ad?.userId || "admin@bizsearch.co.za";
+
+            const newMsg = {
+              id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+              threadId: [
+                userSession.email.toLowerCase(),
+                recipientEmail.toLowerCase(),
+                ad?.id,
+              ]
+                .sort()
+                .join("_"),
+              adId: ad?.id || "",
+              adTitle: ad?.title || "",
+              senderEmail: userSession.email.toLowerCase(),
+              senderName: senderName,
+              recipientEmail: recipientEmail.toLowerCase(),
+              content: directMessageText.trim(),
+              timestamp: new Date().toLocaleString(),
+              read: false,
+            };
+
+            const storedStr = localStorage.getItem("searchbiz_messages_v1");
+            let existing = [];
+            if (storedStr) {
+              try {
+                existing = JSON.parse(storedStr);
+              } catch (e) {}
+            }
+            existing.push(newMsg);
+            localStorage.setItem(
+              "searchbiz_messages_v1",
+              JSON.stringify(existing),
+            );
+            window.dispatchEvent(new CustomEvent("searchbiz_messages_updated"));
+
+            // Immediate server push
+            fetch('/api/storage', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messages: existing })
+            }).catch(e => console.error("Immediate direct message sync failed:", e));
+
+            setIsMessaging(false);
+            setDirectMessageText("");
+            alert("Secure message dispatched!");
+          });
+        } else {
+          alert("You cannot send a message to yourself.");
+          setIsMessaging(false);
+        }
+      }
+    } else {
+      // Guest logic
+      if (!guestName || !guestPhone || !guestEmail || !guestMessage) {
+        alert("Please fill in all required fields (Name, Email, Phone, Message).");
+        return;
+      }
+
+      // Email Format Validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(guestEmail.trim())) {
+        alert("Please enter a valid email address.");
+        return;
+      }
+
+      // Phone Validation (Check for numeric 9-10 digits after prefix)
+      const cleanPhone = guestPhone.replace(/\D/g, "");
+      if (cleanPhone.length < 9 || cleanPhone.length > 11) {
+        alert("Please enter a valid contact number (9-11 digits).");
+        return;
+      }
+
+      setSubmitting(true);
+
+      const recipientEmail = getRecipientEmail();
+      const senderEmail = guestEmail.toLowerCase().trim();
+      const fullContact = `${guestCountryCode}${cleanPhone}`;
+
+      const content = `[GUEST INQUIRY]\nName: ${guestName.trim()}\nEmail: ${senderEmail}\nContact: ${fullContact}\nWhatsApp: ${guestWhatsapp.trim() || "Not provided"}\n\nMessage:\n${guestMessage.trim()}`;
+
+      const newMessage = {
+        id: "msg_" + Date.now(),
+        threadId: [
+          senderEmail,
+          recipientEmail.trim().toLowerCase(),
+          ad?.id,
+        ]
+          .sort()
+          .join("_"),
+        adId: ad?.id || "",
+        adTitle: ad?.title || "",
+        senderEmail: senderEmail,
+        senderName: guestName,
+        recipientEmail: recipientEmail.trim().toLowerCase(),
+        content: content,
+        timestamp: new Date().toISOString(),
+        read: false,
+      };
+
+      try {
+        const existingStr = localStorage.getItem("searchbiz_messages_v1");
+        let existing = [];
+        if (existingStr) {
+          existing = JSON.parse(existingStr);
+        }
+        if (!Array.isArray(existing)) {
+          existing = [];
+        }
+        existing.push(newMessage);
+        localStorage.setItem(
+          "searchbiz_messages_v1",
+          JSON.stringify(existing),
+        );
+        window.dispatchEvent(new CustomEvent("searchbiz_messages_updated"));
+
+        // Immediate server push for guests
+        fetch('/api/storage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: existing })
+        }).catch(e => console.error("Immediate guest direct message sync failed:", e));
+
+      } catch (err) {
+        console.error("Failed to store ad inquiry message:", err);
+      }
+
+      setTimeout(() => {
+        setSubmitting(false);
+        setMsgSuccess(true);
+        setGuestMessage("");
+        setGuestName("");
+        setGuestPhone("");
+        setGuestWhatsapp("");
+
+        setTimeout(() => {
+          setMsgSuccess(false);
+          setIsMessaging(false);
+        }, 3000);
+      }, 500);
+    }
+  };
+
+  // Deterministic pure generation based on ad ID to satisfy React rule of purity
+  const idHash = ad.id
+    .split("")
+    .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const mockPhone = "";
+  const mockEmail = "";
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 overflow-y-auto">
+        {/* Backdrop overlay */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+        />
+
+        {/* Modal Window Container */}
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0, y: 15 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.95, opacity: 0, y: 15 }}
+          transition={{ type: "spring", duration: 0.4 }}
+          className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl relative z-10 overflow-hidden flex flex-col my-auto max-h-[calc(100vh-2rem)] md:max-h-[90vh]"
+        >
+          {/* Header section with top band */}
+          <div className="relative group bg-slate-900 text-white p-5 sm:p-6 md:p-8 shrink-0">
+            {/* Background design */}
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-600/20 to-indigo-600/20 opacity-100 pointer-events-none" />
+
+            <div className="flex items-start justify-between relative z-10">
+              <div className="space-y-2 max-w-[85%]">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span
+                    className={`px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ${ad.isSponsor ? "bg-indigo-600 text-white" : ad.isPremium ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-200"}`}
+                  >
+                    {ad.isSponsor && (
+                      <motion.span
+                        animate={{ scale: [1, 1.3, 1], rotate: [0, 15, -15, 0] }}
+                        transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                        className="inline-block"
+                      >
+                        <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 saturate-150 drop-shadow-[0_0_2px_rgba(251,191,36,0.8)]" />
+                      </motion.span>
+                    )}
+                    {ad.isSponsor
+                      ? "Featured Partner"
+                      : ad.isPremium
+                        ? "Premium Directory"
+                        : "Standard Ad"}
+                  </span>
+                  <PremiumBadge isPremium={ad.isPremium} />
+                  <VerificationBadge verified={ad.verified} isGoogleImport={ad.isGoogleImport || ad.id?.startsWith('csv-') || ad.id?.startsWith('csv_')} isPremium={ad.isPremium} isClaimed={ad.isClaimed} />
+                </div>
+                <h2 className="text-xl md:text-3xl font-bold tracking-tight text-white leading-tight">
+                  {ad.title}
+                </h2>
+              </div>
+
+              {/* Back / Close button */}
+              <button
+                onClick={onClose}
+                className="p-2 md:p-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl md:rounded-2xl border border-slate-700 transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                aria-label="Close details"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Modal scroll area */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6">
+            {/* Admin Override Console */}
+            {isAdmin && (
+              <div className="bg-gradient-to-r from-red-600/10 via-amber-500/10 to-emerald-600/10 p-5 rounded-2xl border border-rose-200 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-2.5">
+                    <ShieldAlert className="w-5 h-5 text-rose-600 animate-pulse" />
+                    <div>
+                      <h4 className="text-sm font-black text-slate-900 uppercase tracking-wide">
+                        ADMINISTRATOR OVERRIDE CONSOLE
+                      </h4>
+                      <p className="text-[11px] text-slate-500 font-medium">
+                        Full read/write/delete privileges for this advertisement
+                        registers.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => setIsAdminEditing(!isAdminEditing)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                        isAdminEditing
+                          ? "bg-slate-700 text-white"
+                          : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      }`}
+                    >
+                      {isAdminEditing ? (
+                        <>
+                          <X className="w-3.5 h-3.5" /> Cancel Edit
+                        </>
+                      ) : (
+                        <>
+                          <Edit className="w-3.5 h-3.5" /> Edit Fields
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={handleAdminDelete}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete Ad
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-toggles for Verification & Tiers */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => handleAdminUnlockLevel2(!isLevel2Unlocked)}
+                    className={`w-full py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center justify-center gap-2 shadow-sm ${
+                      isLevel2Unlocked
+                        ? "bg-amber-600 hover:bg-amber-700 text-white"
+                        : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    }`}
+                  >
+                    <Lock className="w-4 h-4" />
+                    {isLevel2Unlocked
+                      ? "Level 2 Active (Unlocked) — Click to Re-Lock as Level 1 Free Ad"
+                      : "Admin Unlock: Upgrade to Level 2 (R199/mo) + Recommended & Verified Badge"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-slate-200">
+                  <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={editVerified}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setEditVerified(val);
+                        const currentAds = getStoredAds();
+                        saveStoredAds(
+                          currentAds.map((item) =>
+                            item.id === ad.id
+                              ? { ...item, verified: val }
+                              : item,
+                          ),
+                        );
+                      }}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-[10px] sm:text-xs font-bold text-slate-700">
+                      Verified Badge
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={editIsPremium}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setEditIsPremium(val);
+                        const currentAds = getStoredAds();
+                        saveStoredAds(
+                          currentAds.map((item) =>
+                            item.id === ad.id
+                              ? {
+                                  ...item,
+                                  isPremium: val,
+                                  verified: val ? true : item.verified,
+                                }
+                              : item,
+                          ),
+                        );
+                      }}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-[10px] sm:text-xs font-bold text-slate-700">
+                      Premium Tier
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={editIsSponsor}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setEditIsSponsor(val);
+                        const currentAds = getStoredAds();
+                        saveStoredAds(
+                          currentAds.map((item) =>
+                            item.id === ad.id
+                              ? {
+                                  ...item,
+                                  isSponsor: val,
+                                  verified: val ? true : item.verified,
+                                }
+                              : item,
+                          ),
+                        );
+                      }}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-[10px] sm:text-xs font-bold text-slate-700">
+                      Featured Tier
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={editShowCallOption}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setEditShowCallOption(val);
+                        const currentAds = getStoredAds();
+                        saveStoredAds(
+                          currentAds.map((item) =>
+                            item.id === ad.id
+                              ? {
+                                  ...item,
+                                  showCallOption: val,
+                                }
+                              : item,
+                          ),
+                        );
+                      }}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-[10px] sm:text-xs font-bold text-slate-700">
+                      Show Call Option
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )}
+            {isAdminEditing ? (
+              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 space-y-4">
+                <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1.5 font-display">
+                  <Edit className="w-3.5 h-3.5 text-indigo-500" /> Editing
+                  Advertisement Metadata
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      Listing Title
+                    </label>
+                    <input
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      Category / Sector
+                    </label>
+                    <input
+                      type="text"
+                      value={editCategory}
+                      onChange={(e) => setEditCategory(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Hint: Enter <strong>All Categories</strong> to match every sector search query.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      Location (slug / town)
+                    </label>
+                    <input
+                      type="text"
+                      value={editLocation}
+                      onChange={(e) => setEditLocation(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      Fixed Placement / Constant Position
+                    </label>
+                    <select
+                      value={editFixedPosition}
+                      onChange={(e) => setEditFixedPosition(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-700 font-sans"
+                    >
+                      <option value="standard">Standard (Priority Ordered)</option>
+                      <option value="top">Always on Top</option>
+                      <option value="middle">Always in Middle</option>
+                      <option value="bottom">Always in Bottom</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      Contact Phone
+                    </label>
+                    <input
+                      type="text"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      Inquiry Email
+                    </label>
+                    <input
+                      type="text"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      WhatsApp Chat Link/Number
+                    </label>
+                    <input
+                      type="text"
+                      value={editWhatsapp}
+                      onChange={(e) => setEditWhatsapp(e.target.value)}
+                      placeholder="e.g. +27821234567"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      Services Offered
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={editServicesOffered}
+                      onChange={(e) => setEditServicesOffered(e.target.value)}
+                      placeholder="e.g. Toilet Repair, Leak Detection, Pipe Installation..."
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 font-medium font-sans resize-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 border border-slate-200 bg-white rounded-2xl p-4.5 space-y-3">
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 ml-0.5">
+                      Showcase Image / Logo
+                    </label>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                      {/* Image Dropzone Label */}
+                      <label className="flex-1 border-2 border-dashed border-slate-300 hover:border-emerald-400 hover:bg-emerald-50/10 rounded-xl p-4 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[110px]">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setIsScanningImage(true);
+                              setScanResult(null);
+
+                              try {
+                                const compressImage = (f: File): Promise<Blob> => {
+                                  return new Promise((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.readAsDataURL(f);
+                                    reader.onload = (event) => {
+                                      const img = new (window as any).Image();
+                                      img.src = event.target?.result;
+                                      img.onload = () => {
+                                        const canvas = document.createElement("canvas");
+                                        const MAX_WIDTH = 800;
+                                        const MAX_HEIGHT = 800;
+                                        let width = img.width;
+                                        let height = img.height;
+
+                                        if (width > height) {
+                                          if (width > MAX_WIDTH) {
+                                            height *= MAX_WIDTH / width;
+                                            width = MAX_WIDTH;
+                                          }
+                                        } else {
+                                          if (height > MAX_HEIGHT) {
+                                            width *= MAX_HEIGHT / height;
+                                            height = MAX_HEIGHT;
+                                          }
+                                        }
+                                        canvas.width = width;
+                                        canvas.height = height;
+                                        const ctx = canvas.getContext("2d");
+                                        ctx?.drawImage(img, 0, 0, width, height);
+                                        canvas.toBlob((blob) => {
+                                          resolve(blob || f);
+                                        }, "image/jpeg", 0.7);
+                                      };
+                                    };
+                                  });
+                                };
+
+                                const compressedBlob = await compressImage(file);
+                                const fd = new FormData();
+                                fd.append("file", compressedBlob, "compressed.jpg");
+                                fd.append("type", "logo");
+
+                                const response = await fetch("/api/profile/upload", {
+                                  method: "POST",
+                                  body: fd,
+                                });
+
+                                const result = await response.json();
+
+                                if (!response.ok) {
+                                  throw new Error(result.error || result.details || "Upload failed");
+                                }
+
+                                setEditImage(result.url);
+                                setIsScanningImage(false);
+                                setScanResult("clean");
+                              } catch (err: any) {
+                                setIsScanningImage(false);
+                                setScanResult("malware");
+                              }
+                            }
+                          }}
+                        />
+                        <ImageIcon className="w-5 h-5 text-slate-400 mb-1" />
+                        <span className="text-xs font-bold text-slate-600">
+                          Click to upload new image
+                        </span>
+                        <span className="text-[9px] text-slate-400 mt-0.5">
+                          Automatically resized & scanned
+                        </span>
+                      </label>
+
+                      {/* Preview & Remove option */}
+                      {editImage && !isScanningImage && (
+                        <div className="w-24 h-24 rounded-xl overflow-hidden border border-slate-200 relative shrink-0 flex items-center justify-center bg-slate-50 group">
+                          <img
+                            src={editImage}
+                            alt="Listing representation"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditImage("");
+                              setScanResult(null);
+                            }}
+                            className="absolute inset-0 bg-black/50 hover:bg-black/70 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold"
+                            title="Remove Image"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {isScanningImage && (
+                      <div className="text-[10px] font-bold text-indigo-600 flex items-center gap-1.5 animate-pulse">
+                        <div className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                        AI Scanner: Checking image integrity & optimizing...
+                      </div>
+                    )}
+
+                    {scanResult === "clean" && (
+                      <div className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
+                        <CheckCircle className="w-3.5 h-3.5" /> Scanned clean. Verified image loaded.
+                      </div>
+                    )}
+
+                    {scanResult === "malware" && (
+                      <div className="text-[10px] font-bold text-rose-600 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" /> Security scan rejected file. Upload blocked.
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1 ml-0.5">
+                        Image URL Address (Manual Override)
+                      </label>
+                      <input
+                        type="text"
+                        value={editImage}
+                        onChange={(e) => setEditImage(e.target.value)}
+                        placeholder="https://images.unsplash.com/..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1.5 ml-1">
+                      Business Narrative / Description
+                    </label>
+                    <textarea
+                      rows={5}
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 font-medium font-sans"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 justify-end pt-2">
+                  <button
+                    onClick={() => setIsAdminEditing(false)}
+                    className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-sm font-semibold transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAdminSave}
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md transition flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" /> Save Metadata Changes
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Main Visual Image (Premium Only - Zero Images for Free Listings) */}
+                {ad.image && (isLevel2Unlocked || isAdmin) && (
+                  <div className="relative w-full h-56 md:h-80 rounded-2xl overflow-hidden shadow-md">
+                    <Image
+                      src={ad.image}
+                      alt={ad.title}
+                      fill
+                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 70vw, 50vw"
+                      quality={100}
+                      className="object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
+
+                {/* PUBLIC LEVEL 1 FIELDS: Business Name, Address & Phone Number (with Telephone / WhatsApp fallback) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-b border-slate-100 pb-5">
+                  <div className="flex items-center gap-3 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                    <div className="p-2.5 bg-emerald-100 text-emerald-700 rounded-xl">
+                      <MapPin className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="block text-[10px] uppercase font-bold text-slate-400 mb-0.5">
+                        Primary Region
+                      </span>
+                      <span className="text-sm font-bold text-slate-800 capitalize">
+                        {ad.location}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                    <div className="p-2.5 bg-indigo-100 text-indigo-700 rounded-xl">
+                      <Briefcase className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="block text-[10px] uppercase font-bold text-slate-400 mb-0.5">
+                        Industry Sector
+                      </span>
+                      <span className="text-sm font-bold text-slate-800 block max-w-full truncate">
+                        {ad.category}
+                      </span>
+                    </div>
+                  </div>
+
+                  {(ad.address || ad.location) && (
+                    <div className="flex items-center gap-3 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm sm:col-span-2">
+                      <div className="p-2.5 bg-slate-100 text-slate-700 rounded-xl">
+                        <MapPin className="w-5 h-5 text-slate-600" />
+                      </div>
+                      <div className="overflow-hidden">
+                        <span className="block text-[10px] uppercase font-bold text-slate-400 mb-0.5">
+                          Physical Business Address
+                        </span>
+                        <span className="text-sm font-bold text-slate-800 break-words line-clamp-2">
+                          {ad.address || ad.location} {ad.suburb ? `(${ad.suburb})` : ""}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {resolvedDisplayPhone && ad.showCallOption !== false && (
+                    <div className="sm:col-span-2">
+                      <a
+                        href={`tel:${resolvedDisplayPhone}`}
+                        onClick={() => trackCallClick(resolvedDisplayPhone, ad.id, ad.title, ad.category, ad.location)}
+                        className="flex items-center gap-4 p-4 bg-emerald-50 hover:bg-emerald-100 text-slate-800 hover:text-emerald-900 rounded-2xl transition border border-emerald-200/80 shadow-sm group"
+                      >
+                        <div className="bg-emerald-600 p-2.5 rounded-xl shadow-sm group-hover:scale-105 transition shrink-0 text-white">
+                          <Phone className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1">
+                          <span className="block text-[10px] uppercase font-black text-emerald-800 tracking-wider">
+                            Phone Number
+                          </span>
+                          <span className="text-base font-bold font-mono text-slate-900">
+                            {resolvedDisplayPhone}
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold bg-emerald-600 text-white px-3 py-1.5 rounded-xl group-hover:bg-emerald-700 transition">
+                          Call Now
+                        </span>
+                      </a>
+                    </div>
+                  )}
+
+                  {ad.serviceAreas && ad.serviceAreas.length > 0 && (
+                    <div className="flex flex-col gap-2 bg-emerald-50/40 border border-emerald-100/60 p-4 rounded-2xl sm:col-span-2">
+                      <div>
+                        <span className="block text-[10px] uppercase font-bold text-emerald-800 mb-1">
+                          Additional Areas Serviced (Premium Feature)
+                        </span>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {ad.serviceAreas.map((sa: any, index: number) => {
+                            const parts = [sa.town, sa.suburb].filter(Boolean);
+                            const locationLabel = parts.join(", ") || sa.province;
+                            return (
+                              <span key={index} className="inline-flex items-center gap-1 bg-white text-emerald-800 font-semibold px-2.5 py-1 rounded-lg text-xs border border-emerald-100 shadow-sm capitalize">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                {locationLabel}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* LEVEL 1 LOCKED & BLURRED OR LEVEL 2 UNLOCKED: About the Business, Services Offered & Trading Hours */}
+                <div className="relative rounded-2xl border border-slate-200 bg-slate-50/70 p-5 overflow-hidden">
+                  {!isLevel2Unlocked && (
+                    <div className="mb-4 bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative z-20 shadow-xs">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-amber-500 text-white rounded-xl shrink-0 mt-0.5">
+                          <Lock className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black uppercase tracking-wider text-amber-950">
+                              Additional Business Information Locked
+                            </span>
+                            <span className="text-[10px] font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-md">
+                              Level 2 Upgrade: R199.00 / month
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-amber-900 mt-1 leading-relaxed">
+                            About the Business, Services Offered, Trading Hours, Website Link, Social Media Links (X, Instagram, Facebook, TikTok, YouTube), WhatsApp &amp; Emails are captured on this profile but blurred out. Only Admin can unlock them once upgraded to <strong>Level 2 (R199.00/mo)</strong> with business verification for the <strong>Recommended &amp; Verified Badge</strong>.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsClaiming(true);
+                          setClaimIntention("level2");
+                          setClaimStep(1);
+                        }}
+                        className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shrink-0 transition shadow-sm"
+                      >
+                        Upgrade to Level 2 (R199/mo)
+                      </button>
+                    </div>
+                  )}
+
+                  <div className={!isLevel2Unlocked ? "blur-[6px] select-none pointer-events-none opacity-65 space-y-5" : "space-y-5"}>
+                    {/* Business Description */}
+                    <div className="space-y-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-[10px] font-black uppercase text-indigo-600 tracking-[0.2em]">
+                          About The Business
+                        </h3>
+                        {!isLevel2Unlocked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
+                            <Lock className="w-3 h-3" /> Locked (Level 2)
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-slate-700 text-sm sm:text-base leading-[1.8] whitespace-pre-line font-medium break-words">
+                        <AdDescription description={ad.description || `${ad.title} operates in ${ad.location}. Upgrade to Level 2 to unlock full business description.`} />
+                      </div>
+                    </div>
+
+                    {/* Services Offered */}
+                    <div className="space-y-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider">
+                          Services Offered
+                        </h3>
+                        {!isLevel2Unlocked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
+                            <Lock className="w-3 h-3" /> Locked (Level 2)
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-line">
+                        {ad.servicesOffered && !isCustomerReviewOrGarbage(ad.servicesOffered)
+                          ? ad.servicesOffered
+                          : `${ad.category} services, quotes, and consultations in ${ad.location}.`}
+                      </p>
+                    </div>
+
+                    {/* Trading Hours */}
+                    <div className="space-y-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider">
+                          Trading Hours
+                        </h3>
+                        {!isLevel2Unlocked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
+                            <Lock className="w-3 h-3" /> Locked (Level 2)
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-line">
+                        {ad.tradingHours || "Mon-Fri: 08:00 - 17:00, Sat: 08:00 - 13:00"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contact Details & Inquiry Panel */}
+                <div className="pt-6 border-t border-slate-100 font-sans flex flex-col gap-6 max-w-2xl mx-auto w-full">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">
+                        {!isLevel2Unlocked ? "Verify & Unlock Full Business Profile (Level 2)" : "Direct Contact Channels"}
+                      </h4>
+                      {ad.preferredContact && isLevel2Unlocked && (
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                          Prefers: {ad.preferredContact === "Direct Message" ? "SearchBiz Chat" : ad.preferredContact}
+                        </span>
+                      )}
+                    </div>
+
+                    {ad.isClaimed === false ? (
+                      <div className="bg-amber-50 rounded-2xl p-5 border border-amber-200">
+                        {!isClaiming && !msgSuccess ? (
+                          <div className="text-center">
+                            <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+                            <h5 className="text-sm font-bold text-slate-900 mb-1">Is this your business?</h5>
+                            <p className="text-xs text-slate-600 mb-4 px-2 leading-relaxed">
+                              This listing is currently unclaimed. Claim and verify your business ownership now to activate exclusive Premium benefits, get premium search visibility, and take full control of your brand's presence.
+                            </p>
+                            <button
+                              onClick={() => {
+                                setIsClaiming(true);
+                                setClaimStep(1);
+                              }}
+                              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold shadow-sm shadow-amber-200 transition-all border border-amber-400"
+                            >
+                              <ShieldAlert className="w-5 h-5" />
+                              Claim & Verify This Listing
+                            </button>
+                          </div>
+                        ) : isClaiming && !msgSuccess ? (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, height: "auto", scale: 1 }}
+                            className="text-left space-y-4 origin-top"
+                          >
+                            {claimStep === 1 ? (
+                              <div className="space-y-4">
+                                <div className="border-b border-amber-200 pb-3 flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5">
+                                    <Sparkles className="w-4 h-4 text-amber-600" />
+                                    <h5 className="text-sm font-bold text-amber-900">Step 1 of 2: Select Action & Customize Level 2 Options</h5>
+                                  </div>
+                                  <button onClick={() => setIsClaiming(false)} className="text-amber-500 hover:text-amber-700 text-xs font-bold">Cancel</button>
+                                </div>
+                                <p className="text-[11px] text-amber-800 leading-tight mb-2">
+                                  If this is your business, customize your Level 2 Verified options to claim full owner control, or select Request Removal to delete this unverified listing:
+                                </p>
+
+                                <div className="space-y-3">
+                                  {/* Level 2 Essential Verified Tier Card with Interactive Checkbox Builder */}
+                                  <div
+                                    onClick={() => setClaimIntention("level2")}
+                                    className={`p-4 rounded-2xl border-2 transition-all ${
+                                      claimIntention !== "remove_listing"
+                                        ? "bg-emerald-50/80 border-emerald-500 shadow-md ring-2 ring-emerald-500/20"
+                                        : "bg-white border-slate-200 hover:border-emerald-300 cursor-pointer"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between border-b border-emerald-200/80 pb-3 mb-3">
+                                      <div className="flex items-center gap-2">
+                                        <div className="p-1.5 bg-emerald-600 text-white rounded-lg">
+                                          <BadgeCheck className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                          <h6 className="text-xs font-black text-slate-900 uppercase tracking-wide">
+                                            Level 2: Essential Verified Tier
+                                          </h6>
+                                          <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                                            Verified Badge & Full Listing Control
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-sm font-black font-mono text-emerald-700">
+                                          {claimHasSelection ? claimDisplayPrice : "R0.00"}
+                                        </span>
+                                        <span className="text-[9px] text-slate-500 block font-semibold">Calculated Total</span>
+                                      </div>
+                                    </div>
+
+                                    {/* CUSTOMIZE LEVEL 2 CHECKBOX BOX */}
+                                    <div 
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="bg-white border border-emerald-200 rounded-xl p-3 space-y-2.5 shadow-sm"
+                                    >
+                                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-900 block border-b border-emerald-100 pb-1.5">
+                                        CUSTOMIZE LEVEL 2 OPTIONS:
+                                      </span>
+                                      
+                                      <label className="flex items-start gap-2.5 cursor-pointer hover:bg-emerald-50/80 p-1.5 rounded-lg transition-colors">
+                                        <input
+                                          type="checkbox"
+                                          checked={claimL2Verified}
+                                          onChange={(e) => {
+                                            setClaimL2Verified(e.target.checked);
+                                            setClaimIntention("level2");
+                                          }}
+                                          className="w-4 h-4 mt-0.5 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                                        />
+                                        <span className="text-[11px] font-bold text-slate-800 leading-tight">
+                                          Essential Verified Level <span className="text-emerald-700 font-extrabold">(+R199.99/mo)</span>
+                                        </span>
+                                      </label>
+
+                                      <label className="flex items-start gap-2.5 cursor-pointer hover:bg-emerald-50/80 p-1.5 rounded-lg transition-colors">
+                                        <input
+                                          type="checkbox"
+                                          checked={claimL2Extra}
+                                          onChange={(e) => {
+                                            setClaimL2Extra(e.target.checked);
+                                            setClaimIntention("level2");
+                                          }}
+                                          className="w-4 h-4 mt-0.5 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                                        />
+                                        <span className="text-[11px] font-bold text-slate-800 leading-tight">
+                                          Smart Static Site + Hosting <span className="text-emerald-700 font-extrabold">(+R199/mo)</span>
+                                        </span>
+                                      </label>
+
+                                      <label className="flex items-start gap-2.5 cursor-pointer hover:bg-emerald-50/80 p-1.5 rounded-lg transition-colors">
+                                        <input
+                                          type="checkbox"
+                                          checked={claimL2Domain}
+                                          onChange={(e) => {
+                                            setClaimL2Domain(e.target.checked);
+                                            setClaimIntention("level2");
+                                          }}
+                                          className="w-4 h-4 mt-0.5 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                                        />
+                                        <span className="text-[11px] font-bold text-slate-800 leading-tight">
+                                          .co.za Domain Setup <span className="text-emerald-700 font-extrabold">(+R99/yr)</span>
+                                        </span>
+                                      </label>
+
+                                      <div className="space-y-1.5">
+                                        <label className="flex items-start gap-2.5 cursor-pointer hover:bg-emerald-50/80 p-1.5 rounded-lg transition-colors">
+                                          <input
+                                            type="checkbox"
+                                            checked={claimL2Listings}
+                                            onChange={(e) => {
+                                              setClaimL2Listings(e.target.checked);
+                                              setClaimIntention("level2");
+                                            }}
+                                            className="w-4 h-4 mt-0.5 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                                          />
+                                          <span className="text-[11px] font-bold text-slate-800 leading-tight">
+                                            Extra Area Listing <span className="text-emerald-700 font-extrabold">(+R199/mo each)</span>
+                                          </span>
+                                        </label>
+
+                                        {claimL2Listings && (
+                                          <div className="flex items-center gap-2 pl-6 pt-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => setClaimL2ListingCount(Math.max(1, claimL2ListingCount - 1))}
+                                              className="w-6 h-6 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-black text-xs rounded border border-emerald-300 flex items-center justify-center"
+                                            >
+                                              <Minus className="w-3 h-3" />
+                                            </button>
+                                            <span className="text-[11px] font-mono font-bold text-emerald-950 px-2 py-0.5 bg-emerald-100/80 rounded border border-emerald-200">
+                                              {claimL2ListingCount} {claimL2ListingCount === 1 ? 'area' : 'areas'} (+R{(199 * claimL2ListingCount).toFixed(2)}/mo)
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => setClaimL2ListingCount(claimL2ListingCount + 1)}
+                                              className="w-6 h-6 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-black text-xs rounded border border-emerald-300 flex items-center justify-center"
+                                            >
+                                              <Plus className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <p className="text-[10px] text-slate-600 mt-2.5 leading-relaxed pl-1">
+                                      Unlock official verified badge, full business description, phone, WhatsApp, email links, direct website URL, and priority ranking.
+                                    </p>
+                                  </div>
+
+                                  {/* Request Removal / Delete Unverified Listing Card */}
+                                  <div
+                                    onClick={() => setClaimIntention("remove_listing")}
+                                    className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                                      claimIntention === "remove_listing"
+                                        ? "bg-rose-100/60 border-rose-500 shadow-md ring-2 ring-rose-500/20"
+                                        : "bg-white border-slate-200 hover:border-rose-300"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <div className="p-1.5 bg-rose-200 text-rose-800 rounded-lg">
+                                          <Trash2 className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                          <h6 className="text-xs font-bold text-rose-950">Request Removal / Delete Listing</h6>
+                                          <span className="text-[10px] text-rose-700 font-semibold">Remove Unverified Listing</span>
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-xs font-black text-rose-800 font-bold">FREE REQUEST</span>
+                                        <span className="text-[9px] text-rose-600 block">Proof required</span>
+                                      </div>
+                                    </div>
+                                    <p className="text-[10px] text-slate-600 mt-2 leading-relaxed pl-8">
+                                      Are you the official business owner and want this unverified listing deleted from SearchBiz? Submit proof of ownership to request complete removal.
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <button
+                                  onClick={() => {
+                                    if (claimIntention !== "remove_listing" && !claimHasSelection) {
+                                      alert("Please select at least 1 option from Level 2 or choose Request Removal.");
+                                      return;
+                                    }
+                                    setClaimStep(2);
+                                  }}
+                                  disabled={claimIntention !== "remove_listing" && !claimHasSelection}
+                                  className={`w-full mt-3 py-3 px-4 ${
+                                    claimIntention === "remove_listing" 
+                                      ? "bg-rose-700 hover:bg-rose-800 text-white" 
+                                      : !claimHasSelection 
+                                        ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                                        : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                  } rounded-xl text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2`}
+                                >
+                                  {claimIntention === "remove_listing" ? "Continue to Removal Request Form →" : `Continue with ${claimDisplayPrice} Selection →`}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                <div className="border-b border-amber-200 pb-3 flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5">
+                                    <ShieldAlert className="w-4 h-4 text-amber-600" />
+                                    <h5 className="text-sm font-bold text-amber-900">
+                                      {claimIntention === "remove_listing" ? "Step 2 of 2: Listing Deletion Details & Ownership Proof" : "Step 2 of 2: Upload Verification Documents"}
+                                    </h5>
+                                  </div>
+                                  <button onClick={() => setClaimStep(1)} className="text-amber-500 hover:text-amber-700 text-xs font-bold">Back to Options</button>
+                                </div>
+                                
+                                <p className="text-[11px] text-amber-800 leading-tight">
+                                  {claimIntention === "remove_listing"
+                                    ? "Please provide your authorized representative details, reason for removal, and upload proof of business ownership (e.g. CIPC, ID, or Utility Bill) to verify and delete this unverified listing."
+                                    : "Please fill out your verified representative contact details and upload the required proof documents. These records go securely and directly to your Admin SearchBiz Chat."}
+                                </p>
+
+                                <div className="space-y-3 bg-white p-4 rounded-xl border border-amber-100">
+                                  <div>
+                                    <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Authorized Contact Name</label>
+                                    <input 
+                                      type="text" 
+                                      value={claimSenderName}
+                                      onChange={(e) => setClaimSenderName(e.target.value)}
+                                      placeholder="Full Name"
+                                      className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+                                      required 
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Contact Phone</label>
+                                      <input 
+                                        type="tel" 
+                                        value={claimSenderPhone}
+                                        onChange={(e) => setClaimSenderPhone(e.target.value)}
+                                        placeholder="e.g. +27 82 123 4567"
+                                        className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+                                        required 
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Contact Email Address</label>
+                                      <input 
+                                        type="email" 
+                                        value={claimSenderEmail}
+                                        onChange={(e) => setClaimSenderEmail(e.target.value)}
+                                        placeholder="email@example.co.za"
+                                        className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+                                        required 
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {claimIntention === "remove_listing" && (
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-rose-900 uppercase tracking-wider mb-1">Reason for Listing Removal</label>
+                                      <select
+                                        value={claimRemovalReason}
+                                        onChange={(e) => setClaimRemovalReason(e.target.value)}
+                                        className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-rose-500 outline-none font-medium"
+                                      >
+                                        <option value="Do not want public directory listing">Do not want public directory listing on SearchBiz</option>
+                                        <option value="Business permanently closed or relocated">Business permanently closed or relocated</option>
+                                        <option value="Duplicate or outdated listing entry">Duplicate or outdated listing entry</option>
+                                        <option value="Incorrect phone or address details">Incorrect phone or address details</option>
+                                        <option value="Other business policy reason">Other business policy reason</option>
+                                      </select>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="block text-[11px] font-bold text-slate-800 uppercase tracking-wider">
+                                    {claimIntention === "remove_listing" ? "Upload Business Ownership Proof (At least 1 required)" : "Upload Required Verification Documents"}
+                                  </label>
+                                  <p className="text-[10px] text-slate-500">
+                                    {claimIntention === "remove_listing" 
+                                      ? "Upload CIPC certificate, ID document, SARS doc, or utility bill to prove you own or represent this business." 
+                                      : "Please upload all 5 documents to complete official account verification."}
+                                  </p>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div className="p-2.5 bg-white rounded-xl border border-slate-200/80">
+                                    <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">ID Document</label>
+                                    <input type="file" onChange={(e) => handleSecureDocUpload(e, setClaimIdDoc)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-slate-100 file:text-slate-800 hover:file:bg-slate-200" />
+                                    {claimIdDoc && <span className="text-[9px] text-emerald-600 font-bold block mt-1">✓ Loaded Safely</span>}
+                                  </div>
+                                  <div className="p-2.5 bg-white rounded-xl border border-slate-200/80">
+                                    <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">CIPC Registration</label>
+                                    <input type="file" onChange={(e) => handleSecureDocUpload(e, setClaimCipc)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-slate-100 file:text-slate-800 hover:file:bg-slate-200" />
+                                    {claimCipc && <span className="text-[9px] text-emerald-600 font-bold block mt-1">✓ Loaded Safely</span>}
+                                  </div>
+                                  <div className="p-2.5 bg-white rounded-xl border border-slate-200/80">
+                                    <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">SARS Document</label>
+                                    <input type="file" onChange={(e) => handleSecureDocUpload(e, setClaimSars)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-slate-100 file:text-slate-800 hover:file:bg-slate-200" />
+                                    {claimSars && <span className="text-[9px] text-emerald-600 font-bold block mt-1">✓ Loaded Safely</span>}
+                                  </div>
+                                  <div className="p-2.5 bg-white rounded-xl border border-slate-200/80">
+                                    <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">Proof of Address</label>
+                                    <input type="file" onChange={(e) => handleSecureDocUpload(e, setClaimProofOfAddress)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-slate-100 file:text-slate-800 hover:file:bg-slate-200" />
+                                    {claimProofOfAddress && <span className="text-[9px] text-emerald-600 font-bold block mt-1">✓ Loaded Safely</span>}
+                                  </div>
+                                  <div className="p-2.5 bg-white rounded-xl border border-slate-200/80 sm:col-span-2">
+                                    <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">Business Bank Statement / Letterhead</label>
+                                    <input type="file" onChange={(e) => handleSecureDocUpload(e, setClaimBankStatement)} className="w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-slate-100 file:text-slate-800 hover:file:bg-slate-200" />
+                                    {claimBankStatement && <span className="text-[9px] text-emerald-600 font-bold block mt-1">✓ Loaded Safely</span>}
+                                  </div>
+                                </div>
+                                
+                                {isScanningDocs && (
+                                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-center gap-2">
+                                    <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+                                    <span className="text-xs font-bold text-slate-600">Running Deep Security & Malware Scan...</span>
+                                  </div>
+                                )}
+
+                                {scanResultDocs === "clean" && (
+                                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-2">
+                                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                                    <span className="text-xs font-bold text-emerald-700 font-medium">Documents scanned and verified clean</span>
+                                  </div>
+                                )}
+                                
+                                {scanResultDocs === "malware" && (
+                                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-2">
+                                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                                    <span className="text-xs font-bold text-rose-700 font-medium">Malware signature detected. Upload blocked.</span>
+                                  </div>
+                                )}
+
+                                <textarea
+                                  value={claimMessage}
+                                  onChange={(e) => setClaimMessage(e.target.value)}
+                                  placeholder={claimIntention === "remove_listing" ? "Explain why you wish to have this listing deleted..." : "Any additional messages or instructions for the administrator..."}
+                                  className="w-full bg-white border border-amber-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-amber-500 outline-none resize-none text-slate-800 min-h-[60px]"
+                                />
+
+                                <button
+                                  onClick={async () => {
+                                    if (!claimSenderName || !claimSenderPhone || !claimSenderEmail) {
+                                      alert("Please fill in your authorized representative contact details.");
+                                      return;
+                                    }
+
+                                    const isRemoval = claimIntention === "remove_listing";
+
+                                    if (isRemoval) {
+                                      if (!claimIdDoc && !claimCipc && !claimSars && !claimProofOfAddress && !claimBankStatement) {
+                                        alert("Please upload at least one proof of business ownership (ID document, CIPC registration, or Proof of Address) to submit your listing removal request.");
+                                        return;
+                                      }
+                                    } else {
+                                      if (!claimIdDoc || !claimCipc || !claimSars || !claimProofOfAddress || !claimBankStatement) {
+                                        alert("Please select and load all 5 required documents to prove ownership for account verification.");
+                                        return;
+                                      }
+                                    }
+
+                                    setSubmitting(true);
+                                    
+                                    let selectedPlanLabel = "Request Listing Deletion / Removal";
+                                    let selectedPlanPrice = "Free Listing Removal Request";
+
+                                    if (!isRemoval) {
+                                      const selectedOpts: string[] = [];
+                                      if (claimL2Verified) selectedOpts.push("Essential Verified Level (+R199.99/mo)");
+                                      if (claimL2Extra) selectedOpts.push("Smart Static Site & Hosting (+R199.00/mo)");
+                                      if (claimL2Domain) selectedOpts.push(".co.za Domain Setup (+R99.00/yr)");
+                                      if (claimL2Listings) selectedOpts.push(`${claimL2ListingCount} Extra Area Listing(s) (+R${(199 * claimL2ListingCount).toFixed(2)}/mo)`);
+
+                                      selectedPlanLabel = `Level 2 Essential Verified Tier (${selectedOpts.join(", ") || "Custom"})`;
+                                      selectedPlanPrice = claimDisplayPrice;
+                                    }
+
+                                    const content = isRemoval ? `[UNVERIFIED LISTING REMOVAL REQUEST]
+Company Name: ${ad?.title}
+Listing ID: ${ad?.id}
+Authorized Contact Name: ${claimSenderName}
+Phone Number: ${claimSenderPhone}
+Email Address: ${claimSenderEmail}
+Reason for Removal: ${claimRemovalReason}
+Message / Additional Notes: ${claimMessage || "No additional notes"}
+
+PROOF DOCUMENTS ATTACHED:
+ID Document:${claimIdDoc ? " Attached" : " None"}
+CIPC Registration:${claimCipc ? " Attached" : " None"}
+SARS Document:${claimSars ? " Attached" : " None"}
+Proof of Address:${claimProofOfAddress ? " Attached" : " None"}
+Business Bank Statement:${claimBankStatement ? " Attached" : " None"}
+` : `[NEW PREMIUM UPGRADE REQUEST]
+Company Name: ${ad?.title}
+Full Name: ${claimSenderName}
+Phone Number: ${claimSenderPhone}
+Email Address: ${claimSenderEmail}
+Selected Subscription Plan: ${selectedPlanLabel}
+Price Tier: ${selectedPlanPrice}
+Message: ${claimMessage || "No additional notes"}
+
+DOCUMENTS:
+ID Document:${claimIdDoc}
+CIPC Registration:${claimCipc}
+SARS Document:${claimSars}
+Proof of Address:${claimProofOfAddress}
+Business Bank Statement:${claimBankStatement}
+`;
+                                    
+                                    const finalSenderEmail = claimSenderEmail.toLowerCase();
+                                    const claimMessageObj = {
+                                      id: `msg_${Date.now()}_claim`,
+                                      threadId: [
+                                        finalSenderEmail,
+                                        "admin",
+                                        ad?.id,
+                                      ].sort().join("_"),
+                                      adId: ad?.id || "",
+                                      adTitle: ad?.title || "",
+                                      senderEmail: finalSenderEmail,
+                                      senderName: claimSenderName,
+                                      recipientEmail: "admin",
+                                      content: content,
+                                      timestamp: new Date().toLocaleString(),
+                                      read: false,
+                                    };
+                                    
+                                    if (typeof window !== "undefined") {
+                                      const storedStr = localStorage.getItem("searchbiz_messages_v1");
+                                      let existing = [];
+                                      if (storedStr) {
+                                        try {
+                                          existing = JSON.parse(storedStr);
+                                        } catch (e) {}
+                                      }
+                                      existing.push(claimMessageObj);
+                                      localStorage.setItem("searchbiz_messages_v1", JSON.stringify(existing));
+                                      window.dispatchEvent(new CustomEvent("searchbiz_messages_updated"));
+                                    }
+
+                                    try {
+                                      const storageRes = await fetch("/api/storage?claimsOnly=true");
+                                      let currentStorage = { claimRequests: [], messages: [] };
+                                      if (storageRes.ok) {
+                                        currentStorage = await storageRes.json();
+                                      }
+
+                                      const claimRequestObj = {
+                                        id: `claim_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+                                        adId: ad?.id || "",
+                                        adTitle: ad?.title || "",
+                                        adCity: ad?.address || ad?.location || "Unknown",
+                                        adProvince: ad?.location || "Gauteng",
+                                        adCategory: ad?.category || "Other",
+                                        senderEmail: finalSenderEmail,
+                                        senderName: claimSenderName,
+                                        intention: isRemoval ? "removal" : "premium",
+                                        message: isRemoval ? `REMOVAL REQUEST (${claimRemovalReason}) | ${claimMessage || "No message"}` : `Chosen Plan: ${selectedPlanLabel} | ${claimMessage || "No additional message"}`,
+                                        documents: {
+                                          idDoc: claimIdDoc ? "Attached" : "None",
+                                          cipc: claimCipc ? "Attached" : "None",
+                                          sars: claimSars ? "Attached" : "None",
+                                          proofOfAddress: claimProofOfAddress ? "Attached" : "None",
+                                          bankStatement: claimBankStatement ? "Attached" : "None"
+                                        },
+                                        status: "PENDING",
+                                        createdAt: new Date().toISOString()
+                                      };
+
+                                      const updatedClaimRequests = [
+                                        ...(Array.isArray(currentStorage.claimRequests) ? currentStorage.claimRequests : []),
+                                        claimRequestObj
+                                      ];
+
+                                      const updatedMessages = [
+                                        ...(Array.isArray(currentStorage.messages) ? currentStorage.messages : []),
+                                        claimMessageObj
+                                      ];
+
+                                      await fetch("/api/storage", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          claimRequests: updatedClaimRequests,
+                                          messages: updatedMessages
+                                        })
+                                      });
+                                    } catch (err) {
+                                      console.error("Failed to post claim to server storage:", err);
+                                    }
+
+                                    setSubmitting(false);
+                                    setIsClaiming(false);
+                                    setMsgSuccess(true);
+                                  }}
+                                  disabled={submitting}
+                                  className="w-full mt-2 py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-md transition-all flex items-center justify-center disabled:opacity-50"
+                                >
+                                  {submitting ? "Sending Verification Files..." : "Submit Documents Securely"}
+                                </button>
+                              </div>
+                            )}
+                          </motion.div>
+                        ) : (
+                          <div className="text-center py-4">
+                            <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                            <h5 className="text-sm font-bold text-slate-900">
+                              {claimIntention === "remove_listing" ? "Removal Request Submitted" : "Documents Submitted Successfully"}
+                            </h5>
+                            <p className="text-xs text-slate-600 mt-1 mb-4 leading-relaxed">
+                              {claimIntention === "remove_listing"
+                                ? "Your listing deletion request and proof of ownership have been submitted securely to SearchBiz Compliance. Our team will review your proof and permanently delete the listing within 24-48 hours."
+                                : "Your ownership proof has been submitted securely and dispatched directly to Admin SearchBiz Chat. Our team will verify your business shortly and update your listing badges!"}
+                            </p>
+                            <Link
+                              href="/messages"
+                              className="inline-flex items-center gap-2 py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              Open Admin SearchBiz Chat
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    ) : (ad.isPremium || ad.isSponsor) ? (
+                      <div className="mb-4">
+                        {typeof window !== "undefined" && (
+                          <>
+                            {!isMessaging ? (
+                              <button
+                                onClick={() => setIsMessaging(true)}
+                                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm shadow-indigo-200 transition-all border border-indigo-500"
+                              >
+                                <MessageCircle className="w-5 h-5" />
+                                SearchBiz Chat
+                              </button>
+                            ) : (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, height: "auto", scale: 1 }}
+                            className="bg-indigo-50/50 border border-indigo-200 rounded-2xl p-4 sm:p-5 origin-top overflow-hidden"
+                          >
+                              <div className="flex items-center gap-2 mb-4 border-b border-indigo-100 pb-3">
+                                <MessageCircle className="w-5 h-5 text-indigo-600" />
+                                <h5 className="text-xs sm:text-sm font-black text-indigo-900 uppercase tracking-wide">
+                                  SearchBiz Chat
+                                </h5>
+                              </div>
+
+                            {msgSuccess ? (
+                              <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                className="text-center py-6 space-y-3"
+                              >
+                                <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto" />
+                                <div className="space-y-1">
+                                  <p className="text-sm font-bold text-slate-900">
+                                    SearchBiz Chat Dispatched!
+                                  </p>
+                                  <p className="text-xs text-slate-500">
+                                    Your message has been securely sent to the business owner.
+                                  </p>
+                                </div>
+                              </motion.div>
+                            ) : (
+                              <div className="space-y-3">
+                                {typeof window !== "undefined" &&
+                                  !localStorage.getItem(
+                                    "searchbiz_session",
+                                  ) && (
+                                    <>
+                                      <div className="grid grid-cols-1 gap-3">
+                                        <input
+                                          type="text"
+                                          placeholder="Your Full Name *"
+                                          value={guestName}
+                                          onChange={(e) =>
+                                            setGuestName(e.target.value)
+                                          }
+                                          className="w-full bg-white border border-indigo-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700 shadow-inner"
+                                        />
+                                        <input
+                                          type="email"
+                                          placeholder="Your Email Address *"
+                                          value={guestEmail}
+                                          onChange={(e) =>
+                                            setGuestEmail(e.target.value)
+                                          }
+                                          className="w-full bg-white border border-indigo-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700 shadow-inner"
+                                        />
+                                      </div>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="flex gap-2">
+                                          <select
+                                            value={guestCountryCode}
+                                            onChange={(e) => setGuestCountryCode(e.target.value)}
+                                            className="bg-white border border-indigo-200 rounded-xl px-2 py-3 text-xs focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-700 shadow-inner"
+                                          >
+                                            <option value="+27">🇿🇦 +27</option>
+                                            <option value="+263">🇿🇼 +263</option>
+                                            <option value="+264">🇳🇦 +264</option>
+                                            <option value="+267">🇧🇼 +267</option>
+                                            <option value="+44">🇬🇧 +44</option>
+                                            <option value="+1">🇺🇸 +1</option>
+                                          </select>
+                                          <input
+                                            type="tel"
+                                            placeholder="Contact Number *"
+                                            value={guestPhone}
+                                            onChange={(e) =>
+                                              setGuestPhone(e.target.value)
+                                            }
+                                            className="flex-1 bg-white border border-indigo-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700 shadow-inner"
+                                          />
+                                        </div>
+                                        <input
+                                          type="tel"
+                                          placeholder="WhatsApp Number (Optional)"
+                                          value={guestWhatsapp}
+                                          onChange={(e) =>
+                                            setGuestWhatsapp(e.target.value)
+                                          }
+                                          className="w-full bg-white border border-indigo-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700 shadow-inner"
+                                        />
+                                      </div>
+                                    </>
+                                  )}
+
+                                <textarea
+                                  value={
+                                    typeof window !== "undefined" &&
+                                    !localStorage.getItem("searchbiz_session")
+                                      ? guestMessage
+                                      : directMessageText
+                                  }
+                                  onChange={(e) => {
+                                    if (
+                                      !localStorage.getItem(
+                                        "searchbiz_session",
+                                      )
+                                    ) {
+                                      setGuestMessage(e.target.value);
+                                    } else {
+                                      setDirectMessageText(e.target.value);
+                                    }
+                                  }}
+                                  placeholder={
+                                    typeof window !== "undefined" &&
+                                    !localStorage.getItem("searchbiz_session")
+                                      ? "What would you like to ask or request?"
+                                      : `Write your message to ${ad.title}...`
+                                  }
+                                  className="w-full bg-white border border-indigo-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none font-medium text-slate-700 shadow-inner min-h-[100px]"
+                                  rows={4}
+                                />
+
+                                <div className="flex justify-end gap-2 pt-2 border-t border-indigo-100">
+                                  <button
+                                    onClick={() => {
+                                      setIsMessaging(false);
+                                      setDirectMessageText("");
+                                      setGuestMessage("");
+                                    }}
+                                    className="px-4 py-2.5 text-xs font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-xl transition"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={handleSendSecureMessage}
+                                    disabled={
+                                      submitting ||
+                                      (typeof window !== "undefined" &&
+                                      !localStorage.getItem(
+                                        "searchbiz_session",
+                                      )
+                                        ? !guestName ||
+                                          !guestPhone ||
+                                          !guestEmail ||
+                                          !guestMessage
+                                        : !directMessageText.trim())
+                                    }
+                                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-200 transition flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {submitting
+                                      ? "Sending..."
+                                      : "Send SearchBiz Chat"}
+                                    <MessageCircle className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </motion.div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
+                        <p className="text-sm text-slate-500 font-medium tracking-wide">
+                          Reach this business directly via the contact methods provided below.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* REPORT AD OPTION FOR NON-VERIFIED / UNCLAIMED ADS */}
+                    {((!ad.isVerified && !ad.verified) || ad.isClaimed === false) && (
+                      <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 shadow-sm transition-all">
+                        {!isReportingAd ? (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="p-2 bg-rose-100 text-rose-700 rounded-xl">
+                                <ShieldAlert className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h5 className="text-xs font-bold text-slate-900">Is this business closed or info wrong?</h5>
+                                <p className="text-[10px] text-slate-500">Report inaccuracy directly to Admin SearchBiz Chat with Ad ID #{ad.id}</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setIsReportingAd(true);
+                                setReportSuccess(false);
+                              }}
+                              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition shrink-0 flex items-center gap-1.5"
+                            >
+                              <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                              Report Ad
+                            </button>
+                          </div>
+                        ) : reportSuccess ? (
+                          <div className="text-center py-4 space-y-2">
+                            <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto" />
+                            <h5 className="text-xs font-bold text-slate-900">Report Sent to Admin SearchBiz Chat!</h5>
+                            <p className="text-[11px] text-slate-600 max-w-md mx-auto leading-relaxed">
+                              Thank you! Your report for <strong>Ad ID #{ad.id}</strong> ({ad.title}) has been sent directly to the SearchBiz Admin team with full details. We will inspect and update or remove this listing shortly.
+                            </p>
+                            <div className="flex items-center justify-center gap-2 pt-2">
+                              <Link
+                                href="/messages"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                View Admin Chat
+                              </Link>
+                              <button
+                                onClick={() => setIsReportingAd(false)}
+                                className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition"
+                              >
+                                Close
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            className="space-y-3"
+                          >
+                            <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <ShieldAlert className="w-4 h-4 text-rose-600" />
+                                <h5 className="text-xs font-black uppercase text-rose-950 tracking-wider">
+                                  Report Ad / Business Status (Ad ID: #{ad.id})
+                                </h5>
+                              </div>
+                              <button
+                                onClick={() => setIsReportingAd(false)}
+                                className="text-slate-400 hover:text-slate-600 text-xs font-bold"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+
+                            <div className="bg-white p-3 rounded-xl border border-slate-200 text-[11px] text-slate-700 space-y-1">
+                              <div className="font-bold text-slate-900">{ad.title}</div>
+                              <div className="text-slate-500 flex flex-wrap gap-x-3">
+                                <span><strong>Ad ID:</strong> {ad.id}</span>
+                                <span><strong>Category:</strong> {ad.category}</span>
+                                <span><strong>Region:</strong> {ad.location}</span>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                                Reason for Reporting
+                              </label>
+                              <select
+                                value={reportReason}
+                                onChange={(e) => setReportReason(e.target.value)}
+                                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-rose-500"
+                              >
+                                <option value="Business permanently closed or stopped operating">
+                                  🏢 Business permanently closed or stopped operating
+                                </option>
+                                <option value="Phone number / contact details not working">
+                                  📞 Phone number / contact details disconnected or wrong
+                                </option>
+                                <option value="Wrong physical address or relocated">
+                                  📍 Relocated / wrong physical address
+                                </option>
+                                <option value="Inaccurate services or misleading listing information">
+                                  ⚠️ Inaccurate services or misleading details
+                                </option>
+                                <option value="Other issue / request deletion">
+                                  ❌ Other issue / general deletion request
+                                </option>
+                              </select>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                  Your Name *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={reporterName}
+                                  onChange={(e) => setReporterName(e.target.value)}
+                                  placeholder="Full Name"
+                                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 outline-none focus:ring-2 focus:ring-rose-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                  Your Email Address *
+                                </label>
+                                <input
+                                  type="email"
+                                  value={reporterEmail}
+                                  onChange={(e) => setReporterEmail(e.target.value)}
+                                  placeholder="your.email@example.com"
+                                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 outline-none focus:ring-2 focus:ring-rose-500"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                Your Phone Number (Optional)
+                              </label>
+                              <input
+                                type="tel"
+                                value={reporterPhone}
+                                onChange={(e) => setReporterPhone(e.target.value)}
+                                placeholder="e.g. 082 123 4567"
+                                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 outline-none focus:ring-2 focus:ring-rose-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                Additional Report Comments
+                              </label>
+                              <textarea
+                                value={reportComments}
+                                onChange={(e) => setReportComments(e.target.value)}
+                                placeholder="Provide any additional details (e.g., tried calling number, shop is vacant, new owners)..."
+                                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:ring-2 focus:ring-rose-500 min-h-[60px] resize-none"
+                              />
+                            </div>
+
+                            <button
+                              onClick={handleSendAdReport}
+                              disabled={isSubmittingReport || !reporterName || !reporterEmail}
+                              className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {isSubmittingReport ? "Sending Report to Admin Chat..." : "Send Report Direct to Admin Chat →"}
+                            </button>
+                          </motion.div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      <Link
+                        href={`/profile/${ad.userId}`}
+                        className="flex items-center gap-4 p-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl transition shadow-sm group"
+                      >
+                        <div className="bg-slate-800/50 p-2 rounded-xl group-hover:scale-110 transition shrink-0">
+                          <User className="w-6 h-6 text-emerald-400" />
+                        </div>
+                        <div>
+                          <span className="block text-[10px] uppercase font-black text-slate-400">
+                            SearchBiz.co.za ID CARD
+                          </span>
+                          <span className="text-sm font-bold font-sans">
+                            View Representative Profile &rarr;
+                          </span>
+                        </div>
+                      </Link>
+
+                      {/* LEVEL 1 LOCKED & BLURRED OR LEVEL 2 UNLOCKED: Email, WhatsApp, Website & Social Media Links (X, Instagram, Facebook, TikTok, YouTube) */}
+                      {isLevel2Unlocked ? (
+                        <>
+                          {!isEmailHidden && ad.email && (
+                            <a
+                              href={`mailto:${ad.email}`}
+                              className="flex items-center gap-4 p-4 bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 rounded-2xl transition border border-slate-100 hover:border-emerald-100 group"
+                            >
+                              <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200 group-hover:border-emerald-200 group-hover:scale-110 transition shrink-0">
+                                <Mail className="w-5 h-5 text-slate-500 group-hover:text-emerald-600" />
+                              </div>
+                              <div>
+                                <span className="block text-[10px] uppercase font-bold text-slate-400">
+                                  Email Direct
+                                </span>
+                                <span className="text-sm font-bold break-all">
+                                  {ad.email}
+                                </span>
+                              </div>
+                            </a>
+                          )}
+
+                          {ad.whatsapp && (
+                            <a
+                              href={`https://wa.me/${ad.whatsapp.replace(/[^0-9]/g, "")}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => trackWhatsAppClick(ad.whatsapp || "", ad.id, ad.title, ad.category, ad.location)}
+                              className="flex items-center gap-4 p-4 bg-[#25D366] hover:bg-[#1DA851] text-white rounded-2xl transition shadow-sm group"
+                            >
+                              <div className="bg-white/20 p-2 rounded-xl group-hover:scale-110 transition shrink-0">
+                                <span className="text-xl leading-none block">
+                                  💬
+                                </span>
+                              </div>
+                              <div>
+                                <span className="block text-[10px] uppercase font-bold text-green-100">
+                                  WhatsApp Live Chat
+                                </span>
+                                <span className="text-sm font-mono font-bold">
+                                  {ad.whatsapp}
+                                </span>
+                              </div>
+                            </a>
+                          )}
+
+                          {ad.website && (
+                            <a
+                              href={ad.website.startsWith('http') ? ad.website : `https://${ad.website}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => trackAdClick(ad.id, ad.title, ad.category, ad.location, "website_click")}
+                              className="flex items-center gap-4 p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl transition shadow-sm group"
+                            >
+                              <div className="bg-white/20 p-2 rounded-xl group-hover:scale-110 transition shrink-0">
+                                <Globe className="w-5 h-5 text-white" />
+                              </div>
+                              <div className="overflow-hidden">
+                                <span className="block text-[10px] uppercase font-bold text-indigo-100">
+                                  Official Business Website (Level 2 Verified)
+                                </span>
+                                <span className="text-sm font-bold text-white truncate block">
+                                  {ad.website.replace(/^https?:\/\//i, '').replace(/\/$/, '')}
+                                </span>
+                              </div>
+                            </a>
+                          )}
+
+                          {(ad.socialTikTok || ad.tiktok ||
+                            ad.socialX || ad.twitter || ad.x ||
+                            ad.socialInstagram || ad.instagram ||
+                            ad.socialFacebook || ad.facebook ||
+                            ad.socialYoutube || ad.youtube ||
+                            ad.socialLinkedin || ad.linkedin ||
+                            ad.pinterest || ad.threads || ad.telegram) && (
+                            <div className="pt-4 border-t border-slate-100 mt-2">
+                              <span className="block text-[10px] uppercase font-bold text-slate-400 mb-3">
+                                Connect via Social Channels
+                              </span>
+                              <div className="flex flex-wrap gap-2">
+                                {(ad.socialFacebook || ad.facebook) && (
+                                  <a
+                                    href={ad.socialFacebook || ad.facebook}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-2 bg-blue-600 hover:opacity-90 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                                  >
+                                    Facebook
+                                  </a>
+                                )}
+                                {(ad.socialInstagram || ad.instagram) && (
+                                  <a
+                                    href={ad.socialInstagram || ad.instagram}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-2 bg-gradient-to-tr from-yellow-500 via-pink-600 to-purple-600 hover:opacity-90 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                                  >
+                                    Instagram
+                                  </a>
+                                )}
+                                {(ad.socialTikTok || ad.tiktok) && (
+                                  <a
+                                    href={ad.socialTikTok || ad.tiktok}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-2 bg-black hover:opacity-90 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                                  >
+                                    TikTok
+                                  </a>
+                                )}
+                                {(ad.socialYoutube || ad.youtube) && (
+                                  <a
+                                    href={ad.socialYoutube || ad.youtube}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-2 bg-rose-600 hover:opacity-90 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                                  >
+                                    YouTube
+                                  </a>
+                                )}
+                                {(ad.socialX || ad.twitter || ad.x) && (
+                                  <a
+                                    href={ad.socialX || ad.twitter || ad.x}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-2 bg-slate-800 hover:opacity-90 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                                  >
+                                    X / Twitter
+                                  </a>
+                                )}
+                                {(ad.socialLinkedin || ad.linkedin) && (
+                                  <a
+                                    href={ad.socialLinkedin || ad.linkedin}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-2 bg-sky-700 hover:opacity-90 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                                  >
+                                    LinkedIn
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="relative rounded-2xl border border-amber-200 bg-slate-50 p-4 overflow-hidden">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-amber-900">
+                              <Lock className="w-3.5 h-3.5 text-amber-600" />
+                              Locked Contact &amp; Social Media Channels (Level 2 — R199.00/mo)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsClaiming(true);
+                                setClaimIntention("level2");
+                                setClaimStep(1);
+                              }}
+                              className="text-[11px] font-bold text-emerald-700 hover:underline"
+                            >
+                              Unlock via Admin Verification &rarr;
+                            </button>
+                          </div>
+                          <div className="blur-[5px] select-none pointer-events-none opacity-65 space-y-2.5">
+                            <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-200">
+                              <Mail className="w-4 h-4 text-slate-500" />
+                              <div>
+                                <span className="block text-[9px] uppercase font-bold text-slate-400">Email or Emails</span>
+                                <span className="text-xs font-bold text-slate-700">{ad.email || "info@verified-business.co.za"}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 bg-[#25D366]/90 text-white rounded-xl">
+                              <span className="text-sm">💬</span>
+                              <div>
+                                <span className="block text-[9px] uppercase font-bold text-green-100">WhatsApp Number</span>
+                                <span className="text-xs font-mono font-bold">{ad.whatsapp || resolvedDisplayPhone || "+27 82 000 0000"}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 bg-indigo-600/90 text-white rounded-xl">
+                              <Globe className="w-4 h-4 text-white" />
+                              <div>
+                                <span className="block text-[9px] uppercase font-bold text-indigo-100">Website Link</span>
+                                <span className="text-xs font-bold">{ad.website || "https://www.business-website.co.za"}</span>
+                              </div>
+                            </div>
+                            <div className="pt-2">
+                              <span className="block text-[9px] uppercase font-bold text-slate-400 mb-1.5">
+                                Social Media Links (X, Instagram, Facebook, TikTok, YouTube)
+                              </span>
+                              <div className="flex flex-wrap gap-1.5">
+                                <span className="px-2.5 py-1 bg-slate-800 text-white rounded-lg text-[10px] font-bold">X</span>
+                                <span className="px-2.5 py-1 bg-pink-600 text-white rounded-lg text-[10px] font-bold">Instagram</span>
+                                <span className="px-2.5 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-bold">Facebook</span>
+                                <span className="px-2.5 py-1 bg-black text-white rounded-lg text-[10px] font-bold">TikTok</span>
+                                <span className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-[10px] font-bold">YouTube</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Moved Map to Bottom */}
+                  {(ad.isPremium || isAdmin) && ad.address && ad.address.length > 5 && (
+                    <div className="mt-8 border-t border-slate-100 pt-6">
+                      <h3 className="text-xs font-black uppercase text-indigo-600 tracking-wider flex items-center gap-2 mb-3 px-1">
+                        <MapPin className="w-3.5 h-3.5" />
+                        Business Location Map
+                      </h3>
+                      <div className="w-full h-48 sm:h-72 rounded-2xl overflow-hidden border border-slate-200 relative z-0 shadow-inner">
+                        <AdMap address={ad.address} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Footer controls */}
+          <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0">
+            <span className="text-[10px] text-slate-400 font-bold uppercase">
+              AD ID: {ad.id}
+            </span>
+            <button
+              onClick={onClose}
+              className="px-5 py-2.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-xs text-slate-600 transition"
+            >
+              Close
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+}

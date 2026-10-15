@@ -1,0 +1,411 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { MapPin, Star, Edit, Trash2 } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
+import { motion } from 'motion/react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { VerificationBadge, PremiumBadge } from '@/components/ui-extras';
+import AdDetailModal from '@/components/ad-detail-modal';
+import { AdDescription } from '@/components/ad-description';
+import { getStoredAds, saveStoredAds, deleteAd, sortAdsWithPositions, safeLocalStorage, fetchAndStoreAds } from '@/lib/data';
+import { isCustomerReviewOrGarbage } from '@/lib/clean-ad';
+import { Pagination } from '@/components/pagination';
+import { AreaRequestCard } from '@/components/area-request-card';
+
+interface Ad {
+  id: string;
+  userId: string;
+  title: string;
+  category: string;
+  location: string;
+  description: string;
+  verified: boolean;
+  isPremium: boolean;
+  isSponsor: boolean;
+  image: string | null;
+  fixedPosition?: string;
+  isGoogleImport?: boolean;
+}
+
+interface LocationListingsProps {
+  ads: Ad[];
+  properName: string;
+  initialTotalCount?: number;
+}
+
+export default function LocationListings({ ads: propAds, properName, initialTotalCount }: LocationListingsProps) {
+  const { isAdmin } = useAuth();
+  const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
+  const [filteredAds, setFilteredAds] = useState<Ad[]>(propAds && propAds.length > 0 ? propAds : []);
+  const [serverAds, setServerAds] = useState<Ad[] | null>(null);
+  const [serverTotalCount, setServerTotalCount] = useState<number | null>(typeof initialTotalCount === 'number' ? initialTotalCount : null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(999999);
+  const [visibleLimit, setVisibleLimit] = useState<number>(48);
+  const listingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setVisibleLimit(48);
+  }, [properName]);
+
+  useEffect(() => {
+    let active = true;
+    const needsMoreThanSsr = Boolean(propAds && visibleLimit > propAds.length);
+    const loadAndFilter = async (forceFetch = false) => {
+      // If SSR already provided the initial slice (or all ads) for this location on page 1, render immediately with ZERO extra network round-trip!
+      const totalKnown = typeof initialTotalCount === 'number' ? initialTotalCount : (propAds ? propAds.length : 0);
+      if (!forceFetch && currentPage === 1 && propAds && (!needsMoreThanSsr || propAds.length >= totalKnown) && (propAds.length >= 48 || (totalKnown > 0 && propAds.length >= totalKnown))) {
+        setServerAds(propAds);
+        setFilteredAds(propAds);
+        if (typeof initialTotalCount === 'number') {
+          setServerTotalCount(initialTotalCount);
+        }
+        return;
+      }
+
+      // Query server specifically for this location using unified locationSlug + pagination (unlimited when pageSize >= 999999)
+      const pathParts = typeof window !== 'undefined' ? window.location.pathname.split('/').filter(Boolean) : [];
+      const currentSlug = (pathParts[pathParts.length - 1] || properName || '').toLowerCase().trim();
+      const effectiveSize = pageSize >= 999999 ? 999999 : pageSize;
+
+      const params = new URLSearchParams();
+      if (currentSlug) {
+        params.set('locationSlug', currentSlug);
+      } else if (properName) {
+        params.set('locationSlug', properName);
+      }
+      params.set('page', String(currentPage));
+      params.set('pageSize', String(effectiveSize));
+      if (pageSize >= 999999) {
+        params.set('unlimited', 'true');
+      }
+
+      fetch(`/api/storage?${params.toString()}`, { cache: 'no-store' })
+        .then(res => res.json())
+        .then(data => {
+          if (!active || !data) return;
+          if (Array.isArray(data.ads)) {
+            const valid = (data.ads as Ad[]).filter(ad => ad && (ad as any).isActive !== false);
+            if (pageSize >= 999999 && currentPage > 1) {
+              setServerAds(prev => {
+                const existing = prev || [];
+                const seen = new Set(existing.map((a: any) => a.id));
+                const fresh = valid.filter((a: any) => !seen.has(a.id));
+                return [...existing, ...fresh];
+              });
+              setFilteredAds(prev => {
+                const seen = new Set(prev.map((a: any) => a.id));
+                const fresh = valid.filter((a: any) => !seen.has(a.id));
+                return [...prev, ...fresh];
+              });
+            } else {
+              setServerAds(valid);
+              setFilteredAds(valid);
+            }
+          }
+          if (typeof data.totalAdsCount === 'number') {
+            setServerTotalCount(data.totalAdsCount);
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadAndFilter(false);
+
+    const handleAdsUpdated = () => loadAndFilter(true);
+    window.addEventListener("searchbiz_ads_updated", handleAdsUpdated);
+    return () => {
+      active = false;
+      window.removeEventListener("searchbiz_ads_updated", handleAdsUpdated);
+    };
+  }, [properName, currentPage, pageSize, propAds, initialTotalCount, visibleLimit > 48]);
+
+  // Sort them so Positions ("top", "middle", "bottom") and standard Priority are honored
+  const sortedAds = sortAdsWithPositions(serverAds !== null ? serverAds : filteredAds);
+  const totalLocationCount = serverTotalCount !== null ? serverTotalCount : sortedAds.length;
+  const paginatedAds = serverAds !== null ? sortedAds : (pageSize >= 999999 ? sortedAds : sortedAds.slice((currentPage - 1) * pageSize, currentPage * pageSize));
+  const displayedAds = pageSize >= 999999 ? paginatedAds.slice(0, visibleLimit) : paginatedAds;
+
+  return (
+    <div ref={listingsRef} className="w-full">
+      {totalLocationCount === 0 && sortedAds.length === 0 ? (
+        <div className="space-y-6">
+          <AreaRequestCard
+            areaName={properName}
+            isUnmapped={false}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Display Controls & Stats */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
+            <span className="text-xs font-bold text-slate-700">
+              Showing <span className="text-emerald-700 font-extrabold">{totalLocationCount.toLocaleString()}</span> verified listing{totalLocationCount === 1 ? '' : 's'} in <span className="text-slate-900 font-extrabold capitalize">{properName}</span>
+            </span>
+
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-slate-500 font-medium mr-1">Show per page:</span>
+              {[12, 24, 48, 100].map(sz => (
+                <button
+                  key={sz}
+                  onClick={() => {
+                    setPageSize(sz);
+                    setCurrentPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                    pageSize === sz 
+                      ? 'bg-emerald-600 text-white shadow-sm' 
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {sz}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  setPageSize(999999);
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1 rounded-lg font-black transition ${
+                  pageSize >= 999999 
+                    ? 'bg-emerald-700 text-white shadow-sm' 
+                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                }`}
+              >
+                All ({totalLocationCount.toLocaleString()})
+              </button>
+            </div>
+          </div>
+
+          {/* Top Pagination */}
+          {pageSize < 999999 && (
+            <Pagination
+              currentPage={currentPage}
+              totalItems={totalLocationCount}
+              pageSize={pageSize}
+              onPageChange={(page) => {
+                setCurrentPage(page);
+                listingsRef.current?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="mb-6 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm"
+            />
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {displayedAds.map(ad => {
+            const item = ad as any;
+            const hasCustomBorder = item.isSponsor || item.isSpotlight || item.isBannerPlacement || item.isVideoPromo || item.isPremium;
+            const borderClass = 
+              item.isSponsor ? 'border-indigo-300 shadow-indigo-100/40 ring-1 ring-indigo-500/10' : 
+              item.isSpotlight ? 'border-amber-300 shadow-amber-100/40 ring-1 ring-amber-500/10' : 
+              item.isBannerPlacement ? 'border-rose-300 shadow-rose-100/40 ring-1 ring-rose-500/10' : 
+              item.isVideoPromo ? 'border-cyan-300 shadow-cyan-100/40 ring-1 ring-cyan-500/10' : 
+              item.isPremium ? 'border-emerald-300 shadow-emerald-100/40 ring-1 ring-emerald-500/10' : 
+              'border-slate-100';
+
+            return (
+              <div 
+                key={item.id} 
+                onClick={() => setSelectedAd(item)}
+                className={`bg-white rounded-3xl shadow-sm border p-6 flex flex-col hover:shadow-md hover:scale-[1.01] cursor-pointer transition-all duration-300 relative overflow-hidden ${borderClass}`}
+              >
+                {/* Visual Header Badges */}
+                {item.isSponsor && (
+                  <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[9px] font-black uppercase px-3 py-1 rounded-bl-xl tracking-wider z-10 shadow-sm flex items-center gap-1">
+                    <motion.span
+                      animate={{ scale: [1, 1.3, 1], rotate: [0, 15, -15, 0] }}
+                      transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                      className="inline-block"
+                    >
+                      <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400 saturate-150 drop-shadow-[0_0_2px_rgba(251,191,36,0.8)]" />
+                    </motion.span>
+                    Sponsor
+                  </div>
+                )}
+                {item.isSpotlight && (
+                  <div className="absolute top-0 right-0 bg-amber-500 text-white text-[9px] font-black uppercase px-3 py-1 rounded-bl-xl tracking-wider z-10 shadow-sm">
+                    ★ Spotlight Deal
+                  </div>
+                )}
+                {item.isBannerPlacement && (
+                  <div className="absolute top-0 right-0 bg-rose-500 text-white text-[9px] font-black uppercase px-3 py-1 rounded-bl-xl tracking-wider z-10 shadow-sm">
+                    Banner Placement
+                  </div>
+                )}
+                {item.isVideoPromo && (
+                  <div className="absolute top-0 right-0 bg-cyan-600 text-white text-[9px] font-black uppercase px-3 py-1 rounded-bl-xl tracking-wider z-10 shadow-sm flex items-center gap-1">
+                    <span>🎥 Video Promo</span>
+                  </div>
+                )}
+
+                {item.image && (item.isPremium || item.plan === 'PREMIUM') && (
+                  <div className="w-full h-48 mb-4 relative rounded-2xl overflow-hidden shadow-inner bg-slate-100">
+                    <Image 
+                    src={item.image} 
+                    alt={item.title} 
+                    fill 
+                    referrerPolicy="no-referrer" 
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                    quality={100}
+                    className="object-cover object-center transform hover:scale-[1.04] transition duration-500" 
+                  />
+                  </div>
+                )}
+                <div className="flex flex-col gap-2 mb-3 pt-2">
+                  <h3 className="font-bold text-lg text-slate-900 leading-tight tracking-tight flex-1 min-w-0">{item.title}</h3>
+                  <div className="flex flex-wrap gap-1.5 justify-start items-center">
+                    <PremiumBadge isPremium={item.isPremium} />
+                    <VerificationBadge verified={item.verified} isGoogleImport={item.isGoogleImport || item.id?.startsWith('csv-') || item.id?.startsWith('csv_')} isPremium={item.isPremium} isClaimed={item.isClaimed} isRecommended={item.isRecommended} />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5 mb-3 text-xs font-semibold">
+                  <div className="flex flex-wrap gap-2">
+                    <span className="flex items-center bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg capitalize">
+                      <MapPin className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0"/>
+                      <span className="truncate max-w-[220px]">{item.address || item.location}</span>
+                    </span>
+                    <span className="bg-slate-50 text-slate-500 px-2.5 py-1 rounded-lg border border-slate-150 truncate max-w-[150px]">{item.category}</span>
+                  </div>
+                  {(item.phone || item.telephone || item.landline || item.whatsapp) && (
+                    <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 border border-emerald-200/70 px-2.5 py-1.5 rounded-xl font-mono font-bold text-xs">
+                      <span>📞 Phone:</span>
+                      <span>{item.phone || item.telephone || item.landline || item.whatsapp}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="text-slate-500 text-sm flex-grow mb-4 leading-relaxed relative">
+                  {!(item.isPremium && (item.verified || item.isVerified || item.isClaimed === true) && item.isLockedLevel1 !== true) ? (
+                    <div className="relative rounded-xl border border-amber-200/80 bg-amber-50/30 p-3 overflow-hidden">
+                      <div className="flex items-center justify-between gap-1 mb-1.5">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 flex items-center gap-1">
+                          🔒 Locked Details (Level 2 — R199/mo)
+                        </span>
+                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                          Admin Unlock
+                        </span>
+                      </div>
+                      <div className="blur-[2px] select-none pointer-events-none opacity-55 text-xs space-y-1">
+                        <p className="line-clamp-2 text-slate-600">
+                          {item.description || `${item.title} in ${item.location}`}
+                        </p>
+                        <p className="font-medium text-slate-500 truncate">
+                          Services: {item.servicesOffered || item.category} | Hours, Website, Socials &amp; Email Locked
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <AdDescription description={item.description} />
+                      {item.servicesOffered && !isCustomerReviewOrGarbage(item.servicesOffered) && (
+                        <div className="mt-2.5 pt-2.5 border-t border-slate-100 text-slate-600 text-xs leading-relaxed">
+                          <span className="font-extrabold uppercase text-[10px] text-emerald-600 tracking-wider block mb-1">Services Offered:</span>
+                          <p className="whitespace-pre-line font-medium text-slate-500">{item.servicesOffered}</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedAd(item);
+                    }}
+                    className="mt-3 text-emerald-600 hover:text-emerald-700 text-sm font-bold hover:underline inline-flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    click here to view more
+                  </div>
+                </div>
+                {isAdmin && (
+                  <div className="flex gap-2 mb-3 pt-2 border-t border-rose-100 relative z-20" onClick={(e) => e.stopPropagation()}>
+                    <button 
+                      onClick={() => setSelectedAd(item)} 
+                      className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-black uppercase py-2 px-3 rounded-xl border border-emerald-200 transition-all flex items-center justify-center gap-1"
+                    >
+                      <Edit className="w-3 h-3" /> Edit
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (confirm(`ADMIN ACTIONS WARNING: Are you sure you want to PERMANENTLY REMOVE AND PURGE "${item.title}"?`)) {
+                          deleteAd(item.id);
+                          alert("Modified successfully. PURGED.");
+                        }
+                      }} 
+                      className="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-800 text-[11px] font-black uppercase py-2 px-3 rounded-xl border border-rose-200 transition-all flex items-center justify-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" /> Delete
+                    </button>
+                  </div>
+                )}
+                <div className="mt-auto pt-4 border-t border-slate-100">
+                  <button className={`w-full text-white py-3 rounded-xl font-bold text-sm transition-all duration-300 ${
+                    item.isSponsor ? 'bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-600/10' : 
+                    item.isSpotlight ? 'bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-500/10' : 
+                    item.isBannerPlacement ? 'bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/10' : 
+                    item.isVideoPromo ? 'bg-cyan-600 hover:bg-cyan-700 shadow-md shadow-cyan-600/10' : 
+                    item.isPremium ? 'bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-500/10' : 
+                    'bg-slate-900 hover:bg-slate-800'
+                  }`}>
+                    View Details & Contact
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          </div>
+
+          {/* Progressive Load More for All Mode */}
+          {pageSize >= 999999 && (paginatedAds.length > visibleLimit || totalLocationCount > paginatedAds.length) && (
+            <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <span className="text-xs font-bold text-slate-600">
+                Displaying <span className="text-emerald-700 font-extrabold">{displayedAds.length.toLocaleString()}</span> of <span className="text-slate-900 font-extrabold">{totalLocationCount.toLocaleString()}</span> listings
+              </span>
+              <button
+                onClick={() => {
+                  const nextLim = visibleLimit + 120;
+                  setVisibleLimit(nextLim);
+                  if (nextLim > paginatedAds.length && paginatedAds.length < totalLocationCount) {
+                    setCurrentPage(prev => (prev === 1 && paginatedAds.length <= 48 ? 1 : prev + 1));
+                  }
+                }}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-sm transition cursor-pointer"
+              >
+                Load Next 120 Listings
+              </button>
+              <button
+                onClick={() => {
+                  setVisibleLimit(paginatedAds.length + 250);
+                  if (paginatedAds.length < totalLocationCount) {
+                    setCurrentPage(prev => prev + 1);
+                  }
+                }}
+                className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs shadow-sm transition cursor-pointer"
+              >
+                Load Next 250 Batch Instantly
+              </button>
+            </div>
+          )}
+
+          {/* Bottom Pagination */}
+          {pageSize < 999999 && (
+            <Pagination
+              currentPage={currentPage}
+              totalItems={totalLocationCount}
+              pageSize={pageSize}
+              onPageChange={(page) => {
+                setCurrentPage(page);
+                listingsRef.current?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="mt-8 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm"
+            />
+          )}
+        </>
+      )}
+
+      {/* Detail Modal popups */}
+      <AdDetailModal ad={selectedAd} onClose={() => setSelectedAd(null)} />
+    </div>
+  );
+}

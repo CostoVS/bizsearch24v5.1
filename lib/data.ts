@@ -1,0 +1,924 @@
+import { 
+  SA_PROVINCES,
+  KZN_SUBURBS,
+  GAUTENG_SUBURBS,
+  WESTERN_CAPE_SUBURBS,
+  EASTERN_CAPE_SUBURBS,
+  FREE_STATE_SUBURBS,
+  LIMPOPO_SUBURBS,
+  MPUMALANGA_SUBURBS,
+  NORTH_WEST_SUBURBS,
+  NORTHERN_CAPE_SUBURBS 
+} from './locations';
+import { 
+  CATEGORIES as ALL_CATS, 
+  CATEGORIES_STRUCTURED as ALL_CATS_STRUCT, 
+  isSubcategoryOf as IS_SUB,
+  CATEGORY_ICONS as ALL_CAT_ICONS,
+  getCategoryIcon as GET_CAT_ICON,
+  stripCategoryNumber as STRIP_CAT_NUM,
+  getCategoryCode as GET_CAT_CODE
+} from './categories';
+import { cleanAdsArray } from './clean-ad';
+export { cleanAdsArray };
+
+export const PROVINCES = SA_PROVINCES;
+export const CATEGORIES = ALL_CATS;
+export const CATEGORIES_STRUCTURED = ALL_CATS_STRUCT;
+export const isSubcategoryOf = IS_SUB;
+export const CATEGORY_ICONS = ALL_CAT_ICONS;
+export const getCategoryIcon = GET_CAT_ICON;
+export const stripCategoryNumber = STRIP_CAT_NUM;
+export const getCategoryCode = GET_CAT_CODE;
+export const TOTAL_SUBURBS_COUNT = 6931;
+
+// Memoized static set of all lowercase South African location names (provinces, towns, suburbs)
+let locationsSet: Set<string> | null = null;
+
+function getLocationsSet(): Set<string> {
+  if (locationsSet) return locationsSet;
+  const s = new Set<string>();
+
+  // Add province names and slugs
+  for (const p of SA_PROVINCES) {
+    if (p.slug !== 'national') {
+      s.add(p.name.toLowerCase().trim());
+      s.add(p.slug.toLowerCase().trim());
+    }
+    // Add town names
+    for (const t of p.towns) {
+      if (t.toLowerCase() !== 'all locations') {
+        s.add(t.toLowerCase().trim());
+      }
+    }
+  }
+
+  // Add all suburbs and their parent towns
+  const allSubMaps = [
+    KZN_SUBURBS,
+    GAUTENG_SUBURBS,
+    WESTERN_CAPE_SUBURBS,
+    EASTERN_CAPE_SUBURBS,
+    FREE_STATE_SUBURBS,
+    LIMPOPO_SUBURBS,
+    MPUMALANGA_SUBURBS,
+    NORTH_WEST_SUBURBS,
+    NORTHERN_CAPE_SUBURBS
+  ];
+
+  for (const subMap of allSubMaps) {
+    for (const [town, list] of Object.entries(subMap)) {
+      s.add(town.toLowerCase().trim());
+      for (const sub of list) {
+        s.add(sub.name.toLowerCase().trim());
+      }
+    }
+  }
+
+  locationsSet = s;
+  return s;
+}
+
+export function isLocationKeyword(keyword: string): boolean {
+  if (!keyword) return false;
+  const clean = keyword.toLowerCase().trim();
+  const set = getLocationsSet();
+  
+  if (set.has(clean)) return true;
+  
+  // Also check common abbreviations or partial matches for multi-word locations
+  const localAbbreviations = ["kzn", "gauteng", "cape town", "pe", "jhb", "pta", "durban", "national"];
+  if (localAbbreviations.includes(clean)) return true;
+
+  for (const loc of set) {
+    if (loc.length > 3 && (loc.includes(clean) || clean.includes(loc))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// A robust, exception-safe localStorage wrapper that falls back to in-memory cache if localStorage is blocked or throws
+const memoryStorage: Record<string, string> = {};
+
+export const safeLocalStorage = {
+  getItem(key: string): string | null {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        return window.localStorage.getItem(key);
+      }
+    } catch (e) {
+      console.warn("Storage item fetch failed/blocked", e);
+    }
+    return memoryStorage[key] !== undefined ? memoryStorage[key] : null;
+  },
+
+  setItem(key: string, value: string): void {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem(key, value);
+        return;
+      }
+    } catch (e) {
+      console.warn("Storage item save failed/blocked", e);
+    }
+    memoryStorage[key] = value;
+  },
+
+  removeItem(key: string): void {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.removeItem(key);
+        return;
+      }
+    } catch (e) {
+      console.warn("Storage item removal failed/blocked", e);
+    }
+    delete memoryStorage[key];
+  },
+
+  clear(): void {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.clear();
+        return;
+      }
+    } catch (e) {
+      console.warn("Storage clear failed/blocked", e);
+    }
+    for (const key in memoryStorage) {
+      delete memoryStorage[key];
+    }
+  }
+};
+
+export const MOCK_USERS = [
+  {
+    id: 'u1',
+    email: 'admin',
+    role: 'ADMIN',
+    plan: 'PREMIUM',
+    joined: '2026-01-01',
+    lastLoginIP: '102.132.89.44',
+    device: 'MacBook Pro / Chrome',
+    location: 'Durban, KZN'
+  },
+  {
+    id: 'u2',
+    email: 'john.smith@example.co.za',
+    role: 'USER',
+    plan: 'FREE',
+    joined: '2026-05-12',
+    lastLoginIP: '41.13.120.11',
+    device: 'iPhone 14 / Safari',
+    location: 'Umkomaas, KZN'
+  },
+  {
+    id: 'u3',
+    email: 'sarah.jones@example.co.za',
+    role: 'USER',
+    plan: 'PREMIUM',
+    joined: '2026-06-01',
+    lastLoginIP: '197.80.12.99',
+    device: 'Windows 11 / Edge',
+    location: 'Sandton, Gauteng'
+  }
+];
+
+export const MOCK_ADS: any[] = [];
+
+export interface Banner {
+  id: string;
+  name: string;
+  placement: 'Top Sticky' | 'Interstitial' | 'Float';
+  status: 'LIVE' | 'INACTIVE';
+  reach: number;
+  image?: string | null;
+  text?: string;
+  link?: string;
+  visibility?: string;
+}
+
+export const INITIAL_BANNERS: Banner[] = [];
+
+export function getStoredBanners(): Banner[] {
+  if (typeof window === "undefined") {
+    return INITIAL_BANNERS;
+  }
+  
+  const stored = safeLocalStorage.getItem("searchbiz_all_banners");
+  if (stored) {
+    try {
+      let parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        parsed = parsed.filter(b => b.id !== 'b1' && b.id !== 'b2');
+        safeLocalStorage.setItem("searchbiz_all_banners", JSON.stringify(parsed));
+        return parsed;
+      }
+    } catch(e) {}
+  }
+  
+  safeLocalStorage.setItem("searchbiz_all_banners", JSON.stringify(INITIAL_BANNERS));
+  return INITIAL_BANNERS;
+}
+
+export function saveStoredBanners(banners: Banner[]): void {
+  if (typeof window !== "undefined") {
+    safeLocalStorage.setItem("searchbiz_all_banners", JSON.stringify(banners));
+    window.dispatchEvent(new CustomEvent("searchbiz_banner_updated"));
+  }
+}
+
+export function getDeletedAdIds(): string[] {
+  if (typeof window === "undefined") return [];
+  const stored = safeLocalStorage.getItem("searchbiz_deleted_ads");
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {}
+  }
+  return [];
+}
+
+export function getTrashAds(): any[] {
+  if (typeof window === "undefined") return [];
+  const stored = safeLocalStorage.getItem("searchbiz_trash_ads");
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        const deletedSet = new Set(getDeletedAdIds());
+        return parsed.filter(a => a && a.id && !deletedSet.has(a.id));
+      }
+    } catch (e) {}
+  }
+  return [];
+}
+
+export function saveTrashAds(trash: any[]): void {
+  if (typeof window !== "undefined") {
+    safeLocalStorage.setItem("searchbiz_trash_ads", JSON.stringify(trash));
+    window.dispatchEvent(new CustomEvent("searchbiz_trash_updated"));
+  }
+}
+
+// In-memory cache to prevent repetitive JSON.parse and localStorage reads on every render
+let _memStoredAds: any[] | null = null;
+let _memStoredAdsRaw: string | null = null;
+let _memCategoryCounts: Record<string, number> | null = null;
+let _memCategoryCountsRaw: string | null = null;
+let _activeFetchAdsPromise: Promise<any[]> | null = null;
+let _activeStatsPromise: Promise<any> | null = null;
+let _lastStatsData: any = null;
+let _lastStatsTime = 0;
+
+export function clearLocalAdsCache(): void {
+  _memStoredAds = [];
+  _memStoredAdsRaw = "[]";
+  _memCategoryCounts = {};
+  _memCategoryCountsRaw = "{}";
+  _lastStatsData = null;
+  _lastStatsTime = 0;
+  if (typeof window !== "undefined") {
+    safeLocalStorage.setItem("searchbiz_all_ads", "[]");
+    safeLocalStorage.setItem("searchbiz_custom_ads", "[]");
+    safeLocalStorage.setItem("searchbiz_trash_ads", "[]");
+    safeLocalStorage.setItem("searchbiz_deleted_ads", "[]");
+    safeLocalStorage.setItem("searchbiz_total_ads_count", "0");
+    safeLocalStorage.setItem("searchbiz_verified_count", "0");
+    safeLocalStorage.setItem("searchbiz_category_counts", "{}");
+    window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+    window.dispatchEvent(new CustomEvent("searchbiz_trash_updated"));
+  }
+}
+
+export async function fetchDirectoryStats(force: boolean = false): Promise<any> {
+  if (typeof window === "undefined") return null;
+  const now = Date.now();
+  if (!force && _lastStatsData && now - _lastStatsTime < 4000) {
+    return _lastStatsData;
+  }
+  if (_activeStatsPromise) {
+    return _activeStatsPromise;
+  }
+
+  const endpoint = force ? '/api/storage?statsOnly=true&reload=true' : '/api/storage?statsOnly=true';
+  _activeStatsPromise = fetch(endpoint, { cache: 'no-store' })
+    .then(r => (r.ok ? r.json() : null))
+    .then(data => {
+      if (data) {
+        _lastStatsData = data;
+        _lastStatsTime = Date.now();
+        const liveTotal = data.globalTotalAdsCount ?? data.totalAdsCount;
+        const liveVerified = data.globalVerifiedCount ?? data.verifiedCount;
+
+        if (typeof liveTotal === "number") {
+          safeLocalStorage.setItem("searchbiz_total_ads_count", String(liveTotal));
+          if (liveTotal === 0) {
+            _memStoredAds = [];
+            _memStoredAdsRaw = "[]";
+            safeLocalStorage.setItem("searchbiz_all_ads", "[]");
+            safeLocalStorage.setItem("searchbiz_custom_ads", "[]");
+            safeLocalStorage.setItem("searchbiz_deleted_ads", "[]");
+          }
+        }
+        if (typeof liveVerified === "number") {
+          safeLocalStorage.setItem("searchbiz_verified_count", String(liveVerified));
+        }
+        if (data.adminStats?.byCategory) {
+          saveCategoryAdsCounts(data.adminStats.byCategory);
+        }
+        if (force) {
+          window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+        }
+      }
+      return data;
+    })
+    .catch(() => _lastStatsData)
+    .finally(() => {
+      _activeStatsPromise = null;
+    });
+
+  return _activeStatsPromise;
+}
+
+export function saveCategoryAdsCounts(counts: Record<string, number> | undefined | null): void {
+  if (typeof window === "undefined" || !counts || typeof counts !== "object") return;
+  try {
+    const raw = JSON.stringify(counts);
+    _memCategoryCounts = counts;
+    _memCategoryCountsRaw = raw;
+    safeLocalStorage.setItem("searchbiz_category_counts", raw);
+  } catch (e) {}
+}
+
+export function getCategoryAdsCounts(): Record<string, number> {
+  if (typeof window !== "undefined") {
+    const raw = safeLocalStorage.getItem("searchbiz_category_counts");
+    if (raw) {
+      if (_memCategoryCounts && _memCategoryCountsRaw === raw) {
+        return _memCategoryCounts;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          _memCategoryCounts = parsed;
+          _memCategoryCountsRaw = raw;
+          return parsed;
+        }
+      } catch (e) {}
+    }
+  }
+  return _memCategoryCounts || {};
+}
+
+export function getCountForCategory(counts: Record<string, number>, catNameOrCode: string): number {
+  if (!counts || !catNameOrCode) return 0;
+  const trimmed = catNameOrCode.trim();
+  if (counts[trimmed] !== undefined) return counts[trimmed];
+  const lower = trimmed.toLowerCase();
+  if (counts[lower] !== undefined) return counts[lower];
+  const clean = stripCategoryNumber(trimmed);
+  if (clean && counts[clean] !== undefined) return counts[clean];
+  if (clean && counts[clean.toLowerCase()] !== undefined) return counts[clean.toLowerCase()];
+  const code = getCategoryCode(trimmed);
+  if (code && counts[code] !== undefined) return counts[code];
+  return 0;
+}
+
+export function getTotalAdsCount(): number {
+  if (typeof window !== "undefined") {
+    const storedCount = safeLocalStorage.getItem("searchbiz_total_ads_count");
+    if (storedCount !== null && storedCount !== undefined && storedCount !== "") {
+      const parsed = parseInt(storedCount, 10);
+      if (!isNaN(parsed) && parsed >= 0) return parsed;
+    }
+  }
+  const ads = getStoredAds();
+  return ads.length;
+}
+
+export function getVerifiedAdsCount(): number {
+  if (typeof window !== "undefined") {
+    const storedCount = safeLocalStorage.getItem("searchbiz_verified_count");
+    if (storedCount !== null && storedCount !== undefined && storedCount !== "") {
+      const parsed = parseInt(storedCount, 10);
+      if (!isNaN(parsed) && parsed >= 0) return parsed;
+    }
+  }
+  const ads = getStoredAds();
+  return ads.filter(a => a && (a.verified === true || a.adminApproved === true)).length;
+}
+
+// Unified global advertisements client register with localStorage persistence
+export function getStoredAds(): any[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  
+  const stored = safeLocalStorage.getItem("searchbiz_all_ads");
+  if (!stored) return [];
+
+  // Instant in-memory cache hit if raw string in storage hasn't changed
+  if (_memStoredAds && _memStoredAdsRaw === stored) {
+    return _memStoredAds;
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed)) {
+      const deletedSet = new Set(getDeletedAdIds());
+      const filtered = parsed.filter(ad => ad && ad.id && !deletedSet.has(ad.id));
+      const cleaned = cleanAdsArray(filtered);
+      _memStoredAds = cleaned;
+      _memStoredAdsRaw = stored;
+      return cleaned;
+    }
+  } catch (e) {
+    console.error("Error parsing searchbiz_all_ads:", e);
+  }
+  return [];
+}
+
+export async function fetchAndStoreAds(): Promise<any[]> {
+  if (typeof window === "undefined") return [];
+  
+  // Return active in-flight request if one is already running to avoid redundant parallel network calls
+  if (_activeFetchAdsPromise) {
+    return _activeFetchAdsPromise;
+  }
+
+  const MAX_RETRIES = 2;
+  
+  async function performFetch(attempt: number = 0): Promise<any[]> {
+    try {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
+
+      const res = await fetch('/api/storage?page=1&pageSize=120', { 
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+        signal: controller ? controller.signal : undefined
+      }).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      if (data && Array.isArray(data.ads)) {
+        const serverAds = data.ads.filter((a: any) => a && a.id);
+        const totalCnt = data.globalTotalAdsCount ?? data.totalAdsCount;
+        const verCnt = data.globalVerifiedCount ?? data.verifiedCount;
+        const serverDeleted = Array.isArray(data.deletedAds) ? data.deletedAds : [];
+        const localDeleted = totalCnt === 0 ? [] : getDeletedAdIds();
+        
+        // Merge deleted IDs from server and local client
+        const combinedDeletedSet = new Set([...serverDeleted, ...localDeleted]);
+        const combinedDeleted = Array.from(combinedDeletedSet);
+        
+        safeLocalStorage.setItem("searchbiz_deleted_ads", JSON.stringify(combinedDeleted));
+
+        // Filter out deleted ads from the server list & clean review garbage
+        const cleanedServerAds = cleanAdsArray(serverAds);
+        const finalAds = cleanedServerAds.filter((a: any) => a && a.id && !combinedDeletedSet.has(a.id));
+
+        if (totalCnt !== undefined) {
+          safeLocalStorage.setItem("searchbiz_total_ads_count", String(totalCnt));
+        }
+        if (verCnt !== undefined) {
+          safeLocalStorage.setItem("searchbiz_verified_count", String(verCnt));
+        }
+        if (data.adminStats?.byCategory) {
+          saveCategoryAdsCounts(data.adminStats.byCategory);
+        }
+
+        _memStoredAds = finalAds;
+        const localSlice = finalAds.length > 120 ? finalAds.slice(0, 120) : finalAds;
+        const serialized = JSON.stringify(localSlice);
+        safeLocalStorage.setItem("searchbiz_all_ads", serialized);
+        _memStoredAdsRaw = serialized;
+        if (totalCnt === 0 || finalAds.length === 0) {
+          safeLocalStorage.setItem("searchbiz_custom_ads", "[]");
+        }
+        
+        if (data.customPartners) {
+          safeLocalStorage.setItem("searchbiz_custom_partners", JSON.stringify(data.customPartners));
+        }
+
+        if (Array.isArray(data.trashAds)) {
+          safeLocalStorage.setItem("searchbiz_trash_ads", JSON.stringify(data.trashAds));
+          window.dispatchEvent(new CustomEvent("searchbiz_trash_updated"));
+        }
+
+        // If local had deleted ad IDs not yet on server, report deleted IDs only without modifying server ads
+        const unsyncedDeleted = localDeleted.filter(id => !serverDeleted.includes(id));
+        if (unsyncedDeleted.length > 0) {
+          fetch('/api/storage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              deletedAds: combinedDeleted
+            })
+          }).catch(() => {});
+        }
+
+        window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+        return finalAds;
+      }
+      return getStoredAds(); // fallback
+      
+    } catch (e) {
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, 400 * Math.pow(2, attempt)));
+        return performFetch(attempt + 1);
+      }
+      console.warn("fetchAndStoreAds fallback to local cache:", e);
+      return getStoredAds();
+    }
+  }
+  
+  _activeFetchAdsPromise = performFetch().finally(() => {
+    _activeFetchAdsPromise = null;
+  });
+
+  return _activeFetchAdsPromise;
+}
+
+export async function saveStoredAds(ads: any[]): Promise<void> {
+  if (typeof window !== "undefined") {
+    const validAds = cleanAdsArray(ads.filter(ad => ad && ad.id));
+
+    _memStoredAds = validAds;
+    const localSlice = validAds.length > 500 ? validAds.slice(0, 500) : validAds;
+    const serialized = JSON.stringify(localSlice);
+    safeLocalStorage.setItem("searchbiz_all_ads", serialized);
+    _memStoredAdsRaw = serialized;
+    
+    // Also sync the custom ads key for any legacy code
+    const customOnly = validAds.filter(ad => ad.id.startsWith("custom_") || !ad.id.startsWith("ad"));
+    safeLocalStorage.setItem("searchbiz_custom_ads", JSON.stringify(customOnly.slice(0, 300)));
+
+    // Dispatch custom event to notify all components on the same page
+    window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+
+    // Sync back up to the server database (merged server-side now)
+    const MAX_RETRIES = 2;
+    let attempt = 0;
+    
+    const sync = async () => {
+      try {
+        const r = await fetch('/api/storage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            ads: validAds,
+            deletedAds: getDeletedAdIds(),
+            forceSyncAds: true
+          })
+        });
+        
+        if (r.ok) {
+          const res = await r.json();
+          if (typeof res.totalAdsCount === "number") {
+            safeLocalStorage.setItem("searchbiz_total_ads_count", String(res.totalAdsCount));
+          }
+          if (typeof res.verifiedCount === "number") {
+            safeLocalStorage.setItem("searchbiz_verified_count", String(res.verifiedCount));
+          }
+          if (res.adminStats?.byCategory) {
+            saveCategoryAdsCounts(res.adminStats.byCategory);
+          }
+          if (res.data && Array.isArray(res.data.ads)) {
+            _memStoredAds = res.data.ads;
+            const resSlice = res.data.ads.length > 500 ? res.data.ads.slice(0, 500) : res.data.ads;
+            const resSerialized = JSON.stringify(resSlice);
+            safeLocalStorage.setItem("searchbiz_all_ads", resSerialized);
+            _memStoredAdsRaw = resSerialized;
+            if (Array.isArray(res.data.deletedAds)) {
+              safeLocalStorage.setItem("searchbiz_deleted_ads", JSON.stringify(res.data.deletedAds));
+            }
+            window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+          }
+        } else {
+          const errData = await r.json().catch(() => ({}));
+          throw new Error(errData.details || ("Server sync failed: " + r.status));
+        }
+      } catch (e) {
+        if (attempt < MAX_RETRIES) {
+          attempt++;
+          console.warn(`Sync attempt ${attempt} failed, retrying...`, e);
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          return sync();
+        }
+        throw e;
+      }
+    };
+
+    return sync().catch(e => {
+      console.error("saveStoredAds sync failed after retries:", e);
+      throw new Error(e.message || "Failed to sync to cloud");
+    });
+  }
+}
+
+export function deleteAd(id: string, permanent: boolean = true): void {
+  if (typeof window === "undefined" || !id) return;
+  const current = getStoredAds();
+  const targetAd = current.find(ad => ad.id === id);
+  const updated = current.filter(ad => ad.id !== id);
+  
+  // In-memory cache update
+  _memStoredAds = updated;
+  _memStoredAdsRaw = JSON.stringify(updated);
+  safeLocalStorage.setItem("searchbiz_all_ads", JSON.stringify(updated));
+
+  // Optimistically decrement total and category count immediately before server round-trip
+  if (targetAd) {
+    const prevTotal = getTotalAdsCount();
+    if (prevTotal > 0) {
+      safeLocalStorage.setItem("searchbiz_total_ads_count", String(Math.max(0, prevTotal - 1)));
+    }
+    const currentCounts = { ...getCategoryAdsCounts() };
+    const rawCat = String(targetAd.category || "").trim();
+    if (rawCat) {
+      const cleanCat = stripCategoryNumber(rawCat);
+      const keysToDec = new Set<string>([rawCat, rawCat.toLowerCase(), cleanCat, cleanCat.toLowerCase()]);
+      if (targetAd.categoryCode) keysToDec.add(String(targetAd.categoryCode));
+      if (targetAd.categoryGroup) {
+        keysToDec.add(String(targetAd.categoryGroup));
+        keysToDec.add(String(targetAd.categoryGroup).toLowerCase());
+      }
+      CATEGORIES_STRUCTURED.forEach(g => {
+        if (isSubcategoryOf(rawCat, g.name)) {
+          keysToDec.add(g.name);
+          keysToDec.add(g.cleanName);
+          keysToDec.add(g.name.toLowerCase());
+          keysToDec.add(g.cleanName.toLowerCase());
+          g.items.forEach(it => {
+            if (it.name.toLowerCase() === cleanCat.toLowerCase() || it.fullName.toLowerCase() === rawCat.toLowerCase()) {
+              keysToDec.add(it.id);
+              keysToDec.add(it.name);
+              keysToDec.add(it.fullName);
+              keysToDec.add(it.name.toLowerCase());
+              keysToDec.add(it.fullName.toLowerCase());
+            }
+          });
+        }
+      });
+      keysToDec.forEach(k => {
+        if (k && typeof currentCounts[k] === "number" && currentCounts[k] > 0) {
+          currentCounts[k] = Math.max(0, currentCounts[k] - 1);
+        }
+      });
+      saveCategoryAdsCounts(currentCounts);
+    }
+  }
+
+  let updatedTrash = getTrashAds();
+  let updatedDeleted = getDeletedAdIds();
+
+  if (permanent) {
+    if (!updatedDeleted.includes(id)) {
+      updatedDeleted = [...updatedDeleted, id];
+      safeLocalStorage.setItem("searchbiz_deleted_ads", JSON.stringify(updatedDeleted));
+    }
+    updatedTrash = updatedTrash.filter(t => t && t.id !== id);
+    safeLocalStorage.setItem("searchbiz_trash_ads", JSON.stringify(updatedTrash));
+  } else {
+    const alreadyInTrash = updatedTrash.find(t => t.id === id);
+    if (!alreadyInTrash && targetAd) {
+      updatedTrash = [{ ...targetAd, deletedAt: new Date().toISOString() }, ...updatedTrash];
+      safeLocalStorage.setItem("searchbiz_trash_ads", JSON.stringify(updatedTrash));
+    }
+  }
+
+  window.dispatchEvent(new CustomEvent("searchbiz_ads_updated", { detail: { deletedId: id, permanent } }));
+  window.dispatchEvent(new CustomEvent("searchbiz_trash_updated"));
+
+  // Tell server to purge or move to trash and sync exact server category counts
+  fetch('/api/storage', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ 
+       ads: updated,
+       trashAds: updatedTrash,
+       deletedAds: updatedDeleted,
+       deleteAdId: id,
+       permanentDelete: permanent,
+       permanentDeletedIds: permanent ? [id] : []
+     })
+  })
+  .then(r => r.ok ? r.json() : null)
+  .then(res => {
+    if (res) {
+      if (typeof res.totalAdsCount === "number") {
+        safeLocalStorage.setItem("searchbiz_total_ads_count", String(res.totalAdsCount));
+      }
+      if (typeof res.verifiedCount === "number") {
+        safeLocalStorage.setItem("searchbiz_verified_count", String(res.verifiedCount));
+      }
+      if (res.adminStats?.byCategory) {
+        saveCategoryAdsCounts(res.adminStats.byCategory);
+      }
+      window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+    }
+  })
+  .catch(err => {
+    console.error("Storage delete API sync error:", err);
+  });
+}
+
+export async function restoreAdFromTrash(id: string): Promise<{ success: boolean; ad?: any }> {
+  if (typeof window === "undefined") return { success: false };
+  const currentTrash = getTrashAds();
+  const adToRestore = currentTrash.find(t => t.id === id);
+  if (!adToRestore) return { success: false };
+
+  const updatedTrash = currentTrash.filter(t => t.id !== id);
+  const currentAds = getStoredAds();
+  
+  // Make sure not already in ads
+  const cleanedAd = { ...adToRestore };
+  delete cleanedAd.deletedAt;
+  const updatedAds = [cleanedAd, ...currentAds.filter(a => a.id !== id)];
+
+  // Remove from deletedAds set if present
+  const localDeleted = getDeletedAdIds().filter(delId => delId !== id);
+  safeLocalStorage.setItem("searchbiz_deleted_ads", JSON.stringify(localDeleted));
+  safeLocalStorage.setItem("searchbiz_all_ads", JSON.stringify(updatedAds));
+  safeLocalStorage.setItem("searchbiz_trash_ads", JSON.stringify(updatedTrash));
+
+  window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+  window.dispatchEvent(new CustomEvent("searchbiz_trash_updated"));
+
+  try {
+    await fetch('/api/storage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ads: updatedAds,
+        trashAds: updatedTrash,
+        deletedAds: localDeleted,
+        forceSyncAds: true
+      })
+    });
+  } catch (e) {
+    console.error("Failed to sync restore to server:", e);
+  }
+
+  return { success: true, ad: cleanedAd };
+}
+
+export async function permanentlyDeleteAdFromTrash(id: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const currentTrash = getTrashAds();
+  const updatedTrash = currentTrash.filter(t => t.id !== id);
+  
+  const localDeleted = getDeletedAdIds();
+  const combinedDeleted = Array.from(new Set([...localDeleted, id]));
+  
+  safeLocalStorage.setItem("searchbiz_deleted_ads", JSON.stringify(combinedDeleted));
+  safeLocalStorage.setItem("searchbiz_trash_ads", JSON.stringify(updatedTrash));
+
+  window.dispatchEvent(new CustomEvent("searchbiz_trash_updated"));
+
+  try {
+    await fetch('/api/storage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deleteAdId: id,
+        permanentDelete: true,
+        trashAds: updatedTrash,
+        deletedAds: combinedDeleted,
+        permanentDeletedIds: [id]
+      })
+    });
+    return true;
+  } catch (e) {
+    console.error("Failed to permanently delete ad:", e);
+    return false;
+  }
+}
+
+export async function emptyTrashPermanently(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const currentTrash = getTrashAds();
+  const idsToDelete = currentTrash.map(t => t.id);
+  
+  const localDeleted = getDeletedAdIds();
+  const combinedDeleted = Array.from(new Set([...localDeleted, ...idsToDelete]));
+  
+  safeLocalStorage.setItem("searchbiz_deleted_ads", JSON.stringify(combinedDeleted));
+  safeLocalStorage.setItem("searchbiz_trash_ads", JSON.stringify([]));
+
+  window.dispatchEvent(new CustomEvent("searchbiz_trash_updated"));
+
+  try {
+    await fetch('/api/storage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        trashAds: [],
+        deletedAds: combinedDeleted,
+        permanentDeletedIds: idsToDelete
+      })
+    });
+    return true;
+  } catch (e) {
+    console.error("Failed to empty trash:", e);
+    return false;
+  }
+}
+
+export async function purgeStoredAdsBulk(idsToDelete: string[]): Promise<any[]> {
+  if (typeof window === "undefined") return [];
+  const current = getStoredAds();
+  const idSet = new Set(idsToDelete);
+  const updated = current.filter(ad => ad && ad.id && !idSet.has(ad.id));
+  
+  _memStoredAds = updated;
+  const serialized = JSON.stringify(updated);
+  _memStoredAdsRaw = serialized;
+  safeLocalStorage.setItem("searchbiz_all_ads", serialized);
+  safeLocalStorage.setItem("searchbiz_custom_ads", JSON.stringify(updated.filter(ad => ad.id.startsWith("custom_") || !ad.id.startsWith("ad"))));
+  window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+
+  try {
+    const res = await fetch('/api/storage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminAction: 'bulk_purge',
+        scope: 'selected',
+        adIds: idsToDelete
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data.totalAdsCount === "number") {
+        safeLocalStorage.setItem("searchbiz_total_ads_count", String(data.totalAdsCount));
+      }
+      if (typeof data.verifiedCount === "number") {
+        safeLocalStorage.setItem("searchbiz_verified_count", String(data.verifiedCount));
+      }
+      if (data.adminStats?.byCategory) {
+        saveCategoryAdsCounts(data.adminStats.byCategory);
+      }
+      if (data.data && Array.isArray(data.data.ads)) {
+        _memStoredAds = data.data.ads;
+        const resSerialized = JSON.stringify(data.data.ads);
+        _memStoredAdsRaw = resSerialized;
+        safeLocalStorage.setItem("searchbiz_all_ads", resSerialized);
+        window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+        return data.data.ads;
+      }
+    }
+  } catch (e) {
+    console.error("Server purge sync failed:", e);
+  }
+  return updated;
+}
+
+
+
+export function sortAdsWithPositions(ads: any[]): any[] {
+  const topAds = ads.filter(a => a.fixedPosition === 'top');
+  const middleAds = ads.filter(a => a.fixedPosition === 'middle');
+  const bottomAds = ads.filter(a => a.fixedPosition === 'bottom');
+  const standardAds = ads.filter(a => !['top', 'middle', 'bottom'].includes(a.fixedPosition));
+
+  const sortByPriority = (arr: any[]) => {
+    return [...arr].sort((a, b) => {
+      const score = (item: any) => {
+        if (item.isSponsor) return 100;
+        if (item.isSpotlight) return 90;
+        if (item.isBannerPlacement) return 80;
+        if (item.isVideoPromo) return 70;
+        if (item.isPremium) return 60;
+        if (item.verified) return 40; // Verified Free Ads
+        return 10; // Not Verified Free Ads
+      };
+      return score(b) - score(a);
+    });
+  };
+
+  const sortedStandard = sortByPriority(standardAds);
+  const sortedTop = sortByPriority(topAds);
+  const sortedMiddle = sortByPriority(middleAds);
+  const sortedBottom = sortByPriority(bottomAds);
+
+  const halfStandardLen = Math.floor(sortedStandard.length / 2);
+  const standardFirstHalf = sortedStandard.slice(0, halfStandardLen);
+  const standardSecondHalf = sortedStandard.slice(halfStandardLen);
+
+  return [
+    ...sortedTop,
+    ...standardFirstHalf,
+    ...sortedMiddle,
+    ...standardSecondHalf,
+    ...sortedBottom
+  ];
+}
+

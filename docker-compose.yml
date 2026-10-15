@@ -1,0 +1,44 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: searchbiz-web
+    restart: always
+    ports:
+      - "3005:3000"
+    depends_on:
+      - db
+    environment:
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://sb_admin_secure_usr:Sb9_kL82_vX97_mQ41_zP30_rN@db:5432/searchbiz_db
+    volumes:
+      - ./.data:/app/.data
+      - ./data:/app/data
+
+  db:
+    image: postgres:15-alpine
+    container_name: searchbiz-postgres-db
+    restart: always
+    environment:
+      POSTGRES_USER: sb_admin_secure_usr
+      POSTGRES_PASSWORD: Sb9_kL82_vX97_mQ41_zP30_rN
+      POSTGRES_DB: searchbiz_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  
+  adminer:
+    image: adminer:latest
+    container_name: searchbiz-adminer
+    restart: always
+    ports:
+      - "8085:8080"
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

@@ -1,0 +1,5467 @@
+"use client";
+
+import { useAuth } from "@/lib/auth";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+
+const MapPicker = dynamic(() => import("@/components/map-picker"), { ssr: false });
+import { MOCK_USERS, MOCK_ADS, getStoredAds, saveStoredAds, deleteAd, purgeStoredAdsBulk, fetchAndStoreAds, clearLocalAdsCache, getStoredBanners, saveStoredBanners, Banner, getTrashAds, restoreAdFromTrash, permanentlyDeleteAdFromTrash, emptyTrashPermanently, fetchDirectoryStats } from "@/lib/data";
+import { ShieldAlert, Users, Database, Globe, MonitorSmartphone, Settings, Edit, Trash2, LayoutTemplate, Activity, Eye, MousePointerClick, BarChart3, Trash, Search, Sparkles, Filter, ChevronRight, CornerDownRight, X, Plus, Copy, Layers, RefreshCw, Lock, KeyRound, CheckSquare, Square, AlertTriangle, ShieldCheck, Check, CheckCircle2, MapPin, MessageSquare, Phone, BellRing, Undo2, RotateCcw, ArchiveRestore, History, Mail, Send, Briefcase, Building2, AtSign } from "lucide-react";
+import { getAnalyticsEvents, clearAnalyticsStorage, AnalyticsEvent } from "@/lib/analytics-utils";
+import AdDetailModal from "@/components/ad-detail-modal";
+import AdminDuplicateManager from "@/components/admin-duplicate-manager";
+import { formatWhatsAppLink } from "@/components/area-request-card";
+import { SA_PROVINCES, getPostalCodeForTown, findSuburbAndTown } from "@/lib/locations";
+import { CATEGORIES, CATEGORIES_STRUCTURED, stripCategoryNumber } from "@/lib/categories";
+import { cleanAd, cleanAdsArray, isCustomerReviewOrGarbage } from "@/lib/clean-ad";
+import { detectLocationFromPhoneAndText } from "@/lib/location-detector";
+import { parseCsvLine, parseCsvText, parseCsvRowToRecord, ParsedCsvBusinessRecord } from "@/lib/csv-parser";
+import { resolveExactSouthAfricanLocation } from "@/lib/location-resolver";
+import AdminBusinessHub from "@/components/admin-business-hub";
+
+const SEED_EVENTS: AnalyticsEvent[] = [];
+
+export default function AdminDashboard() {
+  const { user, isLoading, isAdmin } = useAuth();
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState('overview');
+  
+  // Banners state
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [editingBanner, setEditingBanner] = useState<Banner | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      Promise.resolve().then(() => {
+        setBanners(getStoredBanners());
+      });
+    }
+  }, []);
+
+  const saveBannersState = (newBanners: Banner[]) => {
+    setBanners(newBanners);
+    saveStoredBanners(newBanners);
+  };
+
+  const handleCreateBanner = () => {
+    const newBanner: Banner = {
+      id: "b_" + Date.now(),
+      name: "New Banner",
+      placement: "Top Sticky",
+      status: "INACTIVE",
+      reach: 0,
+      text: "",
+      link: "/",
+      visibility: "All Pages",
+      image: ""
+    };
+    saveBannersState([...banners, newBanner]);
+    setEditingBanner(newBanner);
+  };
+
+  const handleUpdateBanner = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>, field: keyof Banner) => {
+    if (!editingBanner) return;
+    const val = e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value;
+    const updated = { ...editingBanner, [field]: val } as Banner;
+    setEditingBanner(updated);
+    saveBannersState(banners.map(b => b.id === updated.id ? updated : b));
+  };
+  
+  const handleToggleBannerStatus = (id: string) => {
+    saveBannersState(banners.map(b => {
+      if (b.id === id) {
+        return { ...b, status: b.status === 'LIVE' ? 'INACTIVE' : 'LIVE'}
+      }
+      return b;
+    }));
+  };
+
+  const handleDeleteBanner = (id: string) => {
+    if (confirm("Are you sure you want to delete this banner?")) {
+      saveBannersState(banners.filter(b => b.id !== id));
+      if (editingBanner?.id === id) setEditingBanner(null);
+    }
+  };
+
+  // Dynamic State for Management
+  const [users, setUsers] = useState<any[]>([]);
+  const [ads, setAds] = useState(MOCK_ADS);
+  const [selectedAd, setSelectedAd] = useState<any>(null);
+  const [userSearch, setUserSearch] = useState("");
+  const [reports, setReports] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [timeframe, setTimeframe] = useState<'hours' | 'days' | 'weeks' | 'months'>('days');
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const handleAdsUpdated = () => {
+        Promise.resolve().then(() => {
+          setAds(getStoredAds());
+        });
+      };
+      window.addEventListener("searchbiz_ads_updated", handleAdsUpdated);
+      return () => {
+        window.removeEventListener("searchbiz_ads_updated", handleAdsUpdated);
+      };
+    }
+  }, []);
+
+  // Custom Page Slugs and Professional Verification Submissions States
+  const [customSlugs, setCustomSlugs] = useState<any[]>([]);
+  const [premiumApps, setPremiumApps] = useState<any[]>([]);
+  const [isSlugLoading, setIsSlugLoading] = useState(false);
+  const [isAppLoading, setIsAppLoading] = useState(false);
+
+  const [slugName, setSlugName] = useState("");
+  const [slugProvince, setSlugProvince] = useState("gauteng");
+  const [slugCity, setSlugCity] = useState("");
+  const [slugProperName, setSlugProperName] = useState("");
+  const [slugPostalCode, setSlugPostalCode] = useState("");
+  const [editingSlugInForm, setEditingSlugInForm] = useState<string | null>(null);
+  const [slugLat, setSlugLat] = useState<number | null>(null);
+  const [slugLng, setSlugLng] = useState<number | null>(null);
+
+  // New local SEO properties & generation process state
+  const [slugSeoTitle, setSlugSeoTitle] = useState("");
+  const [slugSeoDescription, setSlugSeoDescription] = useState("");
+  const [slugSeoKeywords, setSlugSeoKeywords] = useState("");
+  const [slugSeoGeoRegion, setSlugSeoGeoRegion] = useState("");
+  const [slugSeoMainHeading, setSlugSeoMainHeading] = useState("");
+  const [slugSeoContentSnippet, setSlugSeoContentSnippet] = useState("");
+  const [slugBusinessType, setSlugBusinessType] = useState("general trades and services");
+  const [isGeneratingSeo, setIsGeneratingSeo] = useState(false);
+  const [seoGeneratorLog, setSeoGeneratorLog] = useState<string[]>([]);
+
+  // CSV Import dynamic configurations (Defaults to "all" to auto-sort every row into its province from the CSV file)
+  const [csvDefaultProvince, setCsvDefaultProvince] = useState("all");
+  const [csvDefaultCategory, setCsvDefaultCategory] = useState("Other");
+  const [csvAiEnable, setCsvAiEnable] = useState(true);
+
+  // New CSV Upload Center Tab state variables
+  const [csvFileParsed, setCsvFileParsed] = useState<any[]>([]); 
+  const [csvPreviewLimit, setCsvPreviewLimit] = useState<number>(50);
+  const [csvEditIndex, setCsvEditIndex] = useState<number | null>(null); 
+  const [csvUploadLoading, setCsvUploadLoading] = useState(false);
+  const [csvUploadProgressText, setCsvUploadProgressText] = useState("");
+  const [csvSearchQuery, setCsvSearchQuery] = useState("");
+  const [csvProvinceFilter, setCsvProvinceFilter] = useState("all");
+  const [csvCategoryFilter, setCsvCategoryFilter] = useState("all");
+
+  // Claim & Removal requests States
+  const [claimRequests, setClaimRequests] = useState<any[]>([]);
+  const [isClaimsLoading, setIsClaimsLoading] = useState(false);
+
+  // Area Mapping Requests State
+  const [mappingRequests, setMappingRequests] = useState<any[]>([]);
+
+  const loadMappingRequests = () => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("searchbiz_area_mapping_requests");
+      if (stored) {
+        try {
+          setMappingRequests(JSON.parse(stored));
+        } catch (e) {}
+      }
+    }
+  };
+
+  useEffect(() => {
+    loadMappingRequests();
+    window.addEventListener("searchbiz_mapping_requests_updated", loadMappingRequests);
+    return () => {
+      window.removeEventListener("searchbiz_mapping_requests_updated", loadMappingRequests);
+    };
+  }, []);
+
+  const handleUpdateMappingRequestStatus = (id: string, newStatus: 'PENDING' | 'IN_PROGRESS' | 'MAPPED' | 'REJECTED') => {
+    if (typeof window !== "undefined") {
+      const updated = mappingRequests.map(r => r.id === id ? { ...r, status: newStatus } : r);
+      setMappingRequests(updated);
+      localStorage.setItem("searchbiz_area_mapping_requests", JSON.stringify(updated));
+      window.dispatchEvent(new CustomEvent("searchbiz_mapping_requests_updated"));
+    }
+  };
+
+  const handleDeleteMappingRequest = (id: string) => {
+    if (confirm("Are you sure you want to remove this mapping request?")) {
+      if (typeof window !== "undefined") {
+        const updated = mappingRequests.filter(r => r.id !== id);
+        setMappingRequests(updated);
+        localStorage.setItem("searchbiz_area_mapping_requests", JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("searchbiz_mapping_requests_updated"));
+      }
+    }
+  };
+
+  // Ad and search filtering states
+  const [adSearchTerm, setAdSearchTerm] = useState("");
+  const [adSearchProvince, setAdSearchProvince] = useState("all");
+  const [adSearchCity, setAdSearchCity] = useState("");
+  const [adSearchCategory, setAdSearchCategory] = useState("all");
+  const [adSourceFilter, setAdSourceFilter] = useState<"all" | "preference" | "csv">("all");
+  const [adTypeFilter, setAdTypeFilter] = useState<"all" | "pending_approval" | "approved" | "free" | "premium" | "sponsor" | "claimed" | "unclaimed" | "remove" | "claimed_free">("all");
+  const [isSyncingAds, setIsSyncingAds] = useState(false);
+  const [adPage, setAdPage] = useState(1);
+  const ITEMS_PER_PAGE = 50;
+
+  // Server-backed Admin pagination & real-time full-database statistics (supports 1,000,000+ ads)
+  const [adminPageAds, setAdminPageAds] = useState<any[] | null>(null);
+  const [adminFilteredTotal, setAdminFilteredTotal] = useState<number | null>(null);
+  const [adminStats, setAdminStats] = useState<{
+    total: number;
+    active: number;
+    pendingApproval: number;
+    approved: number;
+    verified: number;
+    free: number;
+    premium: number;
+    sponsor: number;
+    claimed: number;
+    unclaimed: number;
+    remove: number;
+    claimedFree: number;
+    csvAndBot: number;
+    preference: number;
+    byProvince: Record<string, number>;
+    byCategory: Record<string, number>;
+  } | null>(null);
+
+  const refreshAdminServerAds = async (overridePage?: number) => {
+    try {
+      const targetPage = overridePage ?? adPage;
+      const params = new URLSearchParams();
+      params.set("includeInactive", "true");
+      params.set("page", String(targetPage));
+      params.set("pageSize", String(ITEMS_PER_PAGE));
+      if (adSearchTerm.trim()) params.set("q", adSearchTerm.trim());
+      if (adSearchProvince !== "all") params.set("province", adSearchProvince);
+      if (adSearchCity.trim()) params.set("town", adSearchCity.trim());
+      if (adSearchCategory !== "all") params.set("category", adSearchCategory);
+      if (adSourceFilter !== "all") params.set("source", adSourceFilter);
+      if (adTypeFilter !== "all") params.set("adType", adTypeFilter);
+
+      const res = await fetch(`/api/storage?${params.toString()}`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.ads)) {
+          setAdminPageAds(data.ads);
+        }
+        if (typeof data.totalAdsCount === "number") {
+          setAdminFilteredTotal(data.totalAdsCount);
+        }
+        if (data.adminStats) {
+          setAdminStats(data.adminStats);
+          if (data.adminStats.byCategory) {
+            localStorage.setItem("searchbiz_category_counts", JSON.stringify(data.adminStats.byCategory));
+          }
+          if (data.adminStats.total === 0) {
+            setAds([]);
+            clearLocalAdsCache();
+          }
+        }
+        return data;
+      }
+    } catch (err) {
+      console.error("Failed to fetch admin server ads:", err);
+    }
+    return null;
+  };
+
+  // Master Bulk Delete & Purge Control State
+  const REQUIRED_DELETE_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_DELETE_PASSWORD || "Delete6604211989!?";
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteScope, setDeleteScope] = useState<"all" | "province" | "category" | "csv" | "unclaimed" | "filtered" | "selected">("all");
+  const [deleteSelectedProvince, setDeleteSelectedProvince] = useState("gauteng");
+  const [deleteSelectedCategory, setDeleteSelectedCategory] = useState(CATEGORIES[0] || "Other");
+  const [deletePasswordInput, setDeletePasswordInput] = useState("");
+  const [deletePasswordError, setDeletePasswordError] = useState("");
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [selectedAdIds, setSelectedAdIds] = useState<string[]>([]);
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+
+  // Recycle Bin & Trash State
+  const [trashAds, setTrashAds] = useState<any[]>([]);
+  const [trashSearchTerm, setTrashSearchTerm] = useState("");
+  const [selectedTrashIds, setSelectedTrashIds] = useState<string[]>([]);
+  const [isRestoringTrash, setIsRestoringTrash] = useState(false);
+  const [isPurgingTrash, setIsPurgingTrash] = useState(false);
+  const [trashFeedback, setTrashFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    setAdPage(1);
+  }, [adSearchTerm, adSearchProvince, adSearchCity, adSearchCategory, adSourceFilter, adTypeFilter]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const timer = setTimeout(() => {
+      refreshAdminServerAds();
+    }, adSearchTerm || adSearchCity ? 180 : 0);
+    return () => clearTimeout(timer);
+  }, [activeTab, adPage, adSearchTerm, adSearchProvince, adSearchCity, adSearchCategory, adSourceFilter, adTypeFilter]);
+
+  const handleAutoGenerateSEO = async () => {
+    if (!slugCity.trim()) {
+      alert("Please enter a Target City or Town first so we can analyze the local geography!");
+      return;
+    }
+
+    setIsGeneratingSeo(true);
+    setSeoGeneratorLog([]);
+
+    const logSteps = [
+      "📡 Dialing SearchBiz.co.za AI content servers...",
+      `🧠 Inspecting target: ${slugCity}, South Africa...`,
+      `🔧 Building custom prompts for niche: "${slugBusinessType}"...`,
+      "✍ Formulating click-attracting search titles & summaries...",
+      "🏷 Embedding local sitemaps and geocode indicators...",
+      "🔥 Running final JSON structure validations...",
+      "✅ Local SEO profile successfully calculated!"
+    ];
+
+    // Trigger sequential visual presentation logs
+    for (let i = 0; i < logSteps.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, 380));
+      setSeoGeneratorLog(prev => [...prev, logSteps[i]]);
+    }
+
+    try {
+      const response = await fetch("/api/slugs/generate-seo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          city: slugCity,
+          province: slugProvince,
+          properName: slugProperName,
+          businessType: slugBusinessType
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.seo) {
+          setSlugSeoTitle(data.seo.seoTitle || "");
+          setSlugSeoDescription(data.seo.seoDescription || "");
+          setSlugSeoKeywords(data.seo.seoKeywords || "");
+          setSlugSeoGeoRegion(data.seo.seoGeoRegion || "");
+          setSlugSeoMainHeading(data.seo.seoMainHeading || "");
+          setSlugSeoContentSnippet(data.seo.seoContentSnippet || "");
+        }
+      } else {
+        console.error("Failed to generate SEO from model.");
+      }
+    } catch (e) {
+      console.error("Error generating SEO", e);
+    } finally {
+      setIsGeneratingSeo(false);
+    }
+  };
+
+  const loadCustomSlugs = async () => {
+    setIsSlugLoading(true);
+    try {
+      const res = await fetch("/api/slugs");
+      if (res.ok) {
+        const data = await res.json();
+        setCustomSlugs(data.slugs || []);
+      }
+    } catch (e) {
+      console.error("Failed to load slugs", e);
+    }
+    setIsSlugLoading(false);
+  };
+
+  const loadPremiumApps = async () => {
+    setIsAppLoading(true);
+    try {
+      const res = await fetch("/api/admin/premium-applications");
+      if (res.ok) {
+        const data = await res.json();
+        setPremiumApps(data.applications || []);
+      }
+    } catch (e) {
+      console.error("Failed to load premium applications", e);
+    }
+    setIsAppLoading(false);
+  };
+
+  const handleCreateOrUpdateSlug = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!slugName.trim() || !slugProvince || !slugCity.trim()) {
+      alert("Please fill in Slug URL slug, Province, and City/Town.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/slugs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: slugName,
+          province: slugProvince,
+          city: slugCity,
+          properName: slugProperName || slugCity,
+          postalCode: slugPostalCode,
+          seoTitle: slugSeoTitle,
+          seoDescription: slugSeoDescription,
+          seoKeywords: slugSeoKeywords,
+          seoGeoRegion: slugSeoGeoRegion,
+          seoMainHeading: slugSeoMainHeading,
+          seoContentSnippet: slugSeoContentSnippet,
+          businessType: slugBusinessType,
+          lat: slugLat,
+          lng: slugLng
+        })
+      });
+
+      if (res.ok) {
+        setSlugName("");
+        setSlugCity("");
+        setSlugProperName("");
+        setSlugPostalCode("");
+        setSlugSeoTitle("");
+        setSlugSeoDescription("");
+        setSlugSeoKeywords("");
+        setSlugSeoGeoRegion("");
+        setSlugSeoMainHeading("");
+        setSlugSeoContentSnippet("");
+        setSlugBusinessType("general trades and services");
+        setSlugLat(null);
+        setSlugLng(null);
+        setEditingSlugInForm(null);
+        loadCustomSlugs();
+        alert("Custom URL slug successfully synchronized across sitemaps, dynamic paths, maps, and system ads!");
+      } else {
+        const d = await res.json();
+        alert("Error saving slug: " + (d.error || "Unknown"));
+      }
+    } catch (err) {
+      alert("Error contacting slug server.");
+    }
+  };
+
+  const handleDeleteSlug = async (slugVal: string) => {
+    if (!confirm(`Are you sure you want to delete the custom slug /${slugVal}? This will revert dynamic pathways matching this slug.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/slugs?slug=${slugVal}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        loadCustomSlugs();
+      } else {
+        alert("Failed to delete custom slug.");
+      }
+    } catch (err) {
+      alert("Connection issue during deletion.");
+    }
+  };
+
+  const handleApprovePremium = async (appId: string) => {
+    const targetApp = premiumApps.find(a => a.id === appId);
+    const planName = (targetApp?.plan || "ESSENTIAL").toUpperCase();
+    if (!confirm(`Are you sure you want to approve this verification application? This will verify their documents, activate their monthly debit billing for the ${planName} tier, and automatically upgrade their credentials!`)) return;
+    try {
+      const res = await fetch("/api/admin/premium-applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: appId, status: "APPROVED" })
+      });
+      if (res.ok) {
+        loadPremiumApps();
+        // Refresh users list too
+        const rUsers = await fetch('/api/admin/users');
+        if (rUsers.ok) {
+          const uData = await rUsers.json();
+          if (uData.users) setUsers(uData.users);
+        }
+        alert(`Application approved! User plan upgraded to ${planName}.`);
+      } else {
+        alert("Failed to update status.");
+      }
+    } catch (err) {
+      alert("Server failure during application update.");
+    }
+  };
+
+  const handleRejectPremium = async (appId: string) => {
+    if (!confirm("Reject this business verification application? This will decline their verification records.")) return;
+    try {
+      const res = await fetch("/api/admin/premium-applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: appId, status: "REJECTED" })
+      });
+      if (res.ok) {
+        loadPremiumApps();
+        alert("Application marked as Rejected.");
+      }
+    } catch (err) {
+      alert("Server error rejecting application.");
+    }
+  };
+
+  const handleAddCsvRow = () => {
+    setCsvFileParsed(prev => [
+      {
+        title: "New Business Listing",
+        address: "",
+        phone: "",
+        email: "",
+        category: csvDefaultCategory !== "General" ? csvDefaultCategory : "Other",
+        province: csvDefaultProvince && csvDefaultProvince !== "all" ? csvDefaultProvince : "gauteng",
+        city: "Johannesburg",
+        servicesOffered: ""
+      },
+      ...prev
+    ]);
+  };
+
+  useEffect(() => {
+    fetch('/api/admin/users').then(res => res.json()).then(data => {
+      Promise.resolve().then(() => {
+        if (data.users && data.users.length > 0) {
+          setUsers(data.users);
+        } else {
+          setUsers(MOCK_USERS);
+        }
+      });
+    }).catch(() => {
+      Promise.resolve().then(() => {
+        setUsers(MOCK_USERS);
+      });
+    });
+  }, []);
+
+  const loadClaimRequests = async () => {
+    setIsClaimsLoading(true);
+    try {
+      const res = await fetch("/api/storage?claimsOnly=true");
+      if (res.ok) {
+        const data = await res.json();
+        setClaimRequests(data.claimRequests || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch claims:", e);
+    } finally {
+      setIsClaimsLoading(false);
+    }
+  };
+
+  // Load analytics events and initial admin datasets once on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setTimeout(() => {
+        const tracked = getAnalyticsEvents();
+        if (tracked.length === 0) {
+          setEvents(SEED_EVENTS);
+        } else {
+          // Sort newest first
+          const combined = [...tracked, ...SEED_EVENTS].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+          setEvents(combined);
+        }
+
+        // Load unified ads from master store
+        const currentLocal = getStoredAds();
+        setAds(currentLocal);
+        setTrashAds(getTrashAds());
+
+        // Auto-load custom slugs, premium documents, and claims once on mount
+        loadCustomSlugs();
+        loadPremiumApps();
+        loadClaimRequests();
+      }, 0);
+    }
+  }, []);
+
+  const purgeAllAnalytics = () => {
+    if (confirm("Are you sure you want to delete all stored interaction history? This action is permanent.")) {
+      clearAnalyticsStorage();
+      setEvents(SEED_EVENTS);
+    }
+  };
+
+  // Hook to fetch reported participants from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("searchbiz_reports_v1");
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          Promise.resolve().then(() => {
+            setReports(parsed);
+          });
+        } catch (e) {}
+      }
+    }
+  }, [activeTab]);
+
+  // Hook to keep trash synchronized
+  useEffect(() => {
+    const handleTrashUpdated = () => {
+      setTrashAds(getTrashAds());
+    };
+    window.addEventListener("searchbiz_trash_updated", handleTrashUpdated);
+    window.addEventListener("searchbiz_ads_updated", handleTrashUpdated);
+    return () => {
+      window.removeEventListener("searchbiz_trash_updated", handleTrashUpdated);
+      window.removeEventListener("searchbiz_ads_updated", handleTrashUpdated);
+    };
+  }, []);
+
+  const handleRestoreSingleAd = async (id: string) => {
+    setIsRestoringTrash(true);
+    setTrashFeedback(null);
+    try {
+      const result = await restoreAdFromTrash(id);
+      if (result.success) {
+        setTrashAds(getTrashAds());
+        setAds(getStoredAds());
+        setSelectedTrashIds(prev => prev.filter(item => item !== id));
+        setTrashFeedback({ type: 'success', message: `Listing "${result.ad?.title || 'Selected ad'}" was successfully restored to the live directory!` });
+        setTimeout(() => setTrashFeedback(null), 5000);
+      } else {
+        setTrashFeedback({ type: 'error', message: 'Failed to restore listing from recycle bin.' });
+      }
+    } catch (e) {
+      setTrashFeedback({ type: 'error', message: 'Error occurred during restore operation.' });
+    } finally {
+      setIsRestoringTrash(false);
+    }
+  };
+
+  const handleRestoreBulkTrash = async () => {
+    if (selectedTrashIds.length === 0) return;
+    setIsRestoringTrash(true);
+    setTrashFeedback(null);
+    try {
+      let count = 0;
+      for (const id of selectedTrashIds) {
+        const res = await restoreAdFromTrash(id);
+        if (res.success) count++;
+      }
+      setTrashAds(getTrashAds());
+      setAds(getStoredAds());
+      setSelectedTrashIds([]);
+      setTrashFeedback({ type: 'success', message: `Successfully restored ${count} listing(s) back to the active directory!` });
+      setTimeout(() => setTrashFeedback(null), 5000);
+    } catch (e) {
+      setTrashFeedback({ type: 'error', message: 'Error occurred during bulk restore operation.' });
+    } finally {
+      setIsRestoringTrash(false);
+    }
+  };
+
+  const handlePermanentDeleteSingle = async (id: string, title?: string) => {
+    if (!confirm(`Are you sure you want to PERMANENTLY delete "${title || 'this listing'}"? This action cannot be undone.`)) {
+      return;
+    }
+    setIsPurgingTrash(true);
+    setTrashFeedback(null);
+    try {
+      const success = await permanentlyDeleteAdFromTrash(id);
+      if (success) {
+        setTrashAds(getTrashAds());
+        setSelectedTrashIds(prev => prev.filter(item => item !== id));
+        setTrashFeedback({ type: 'success', message: `Listing was permanently deleted from central records.` });
+        setTimeout(() => setTrashFeedback(null), 5000);
+      } else {
+        setTrashFeedback({ type: 'error', message: 'Failed to delete permanently.' });
+      }
+    } catch (e) {
+      setTrashFeedback({ type: 'error', message: 'Error occurred while permanently deleting.' });
+    } finally {
+      setIsPurgingTrash(false);
+    }
+  };
+
+  const handlePermanentDeleteBulk = async () => {
+    if (selectedTrashIds.length === 0) return;
+    if (!confirm(`Are you sure you want to PERMANENTLY purge ${selectedTrashIds.length} listing(s)? This action cannot be undone.`)) {
+      return;
+    }
+    setIsPurgingTrash(true);
+    setTrashFeedback(null);
+    try {
+      for (const id of selectedTrashIds) {
+        await permanentlyDeleteAdFromTrash(id);
+      }
+      setTrashAds(getTrashAds());
+      setSelectedTrashIds([]);
+      setTrashFeedback({ type: 'success', message: `Successfully purged selected items from the database permanently.` });
+      setTimeout(() => setTrashFeedback(null), 5000);
+    } catch (e) {
+      setTrashFeedback({ type: 'error', message: 'Error occurred during bulk purge.' });
+    } finally {
+      setIsPurgingTrash(false);
+    }
+  };
+
+  const handleEmptyTrash = async () => {
+    if (trashAds.length === 0) return;
+    if (!confirm(`Are you sure you want to empty the entire Recycle Bin (${trashAds.length} listings)? All deleted items will be permanently erased.`)) {
+      return;
+    }
+    setIsPurgingTrash(true);
+    setTrashFeedback(null);
+    try {
+      const success = await emptyTrashPermanently();
+      if (success) {
+        setTrashAds([]);
+        setSelectedTrashIds([]);
+        setTrashFeedback({ type: 'success', message: 'Recycle bin emptied permanently.' });
+        setTimeout(() => setTrashFeedback(null), 5000);
+      } else {
+        setTrashFeedback({ type: 'error', message: 'Failed to empty recycle bin.' });
+      }
+    } catch (e) {
+      setTrashFeedback({ type: 'error', message: 'Error occurred while emptying trash.' });
+    } finally {
+      setIsPurgingTrash(false);
+    }
+  };
+
+  const resolveReport = (id: string) => {
+    const updated = reports.filter(r => r.id !== id);
+    setReports(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("searchbiz_reports_v1", JSON.stringify(updated));
+    }
+  };
+
+  const blockReportActor = (id: string, accusedEmail: string) => {
+    console.log(`Acclaimed Bad Actor Banned: [${accusedEmail}]. Access revoked from community feed and direct client channels.`);
+    const updated = reports.filter(r => r.id !== id);
+    setReports(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("searchbiz_reports_v1", JSON.stringify(updated));
+    }
+  };
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setAds(getStoredAds());
+    };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "searchbiz_all_ads" || e.key === "searchbiz_deleted_ads") {
+        setAds(getStoredAds());
+      }
+    };
+    window.addEventListener("searchbiz_ads_updated", handleUpdate);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("searchbiz_ads_updated", handleUpdate);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) {
+      if (!user || !isAdmin) {
+        router.push("/");
+      }
+    }
+  }, [user, isLoading, isAdmin, router]);
+
+  const removeUser = async (id: string) => {
+    const targetUser = users.find(u => u.id === id);
+    if (targetUser && targetUser.email?.toLowerCase() === user?.email?.toLowerCase()) {
+      alert("Access Denied: You cannot delete your own active administrator account.");
+      return;
+    }
+    if (confirm("Are you sure you want to permanently delete this user account?")) {
+      await fetch(`/api/admin/users?id=${id}`, { method: 'DELETE' });
+      setUsers(users.filter(u => u.id !== id));
+      console.log("User account physically removed and purged from server registers.");
+    }
+  };
+
+  const blockUser = (id: string) => {
+    const targetUser = users.find(u => u.id === id);
+    if (targetUser && targetUser.email?.toLowerCase() === user?.email?.toLowerCase()) {
+      alert("Access Denied: You cannot block your own active administrator account.");
+      return;
+    }
+    console.log("User account has been locked. Access revoked until further manual override.");
+  };
+
+  const handleUpdateUserPlan = async (userId: string, newPlan: string) => {
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: userId, plan: newPlan }),
+      });
+      if (res.ok) {
+        setUsers(users.map(u => u.id === userId ? { ...u, plan: newPlan } : u));
+        console.log(`Successfully updated user ${userId} plan to ${newPlan}`);
+      } else {
+        const data = await res.json();
+        alert("Failed to update user plan: " + (data.error || "Unknown error"));
+      }
+    } catch (err) {
+      alert("Error communicating with user update server.");
+    }
+  };
+
+  const handleUpdateUserRole = async (userId: string, newRole: string) => {
+    const targetUser = users.find(u => u.id === userId);
+    if (targetUser && targetUser.email?.toLowerCase() === user?.email?.toLowerCase() && newRole !== "ADMIN") {
+      alert("Access Denied: You cannot downgrade your own active administrator role.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: userId, role: newRole }),
+      });
+      if (res.ok) {
+        setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+        console.log(`Successfully updated user ${userId} role to ${newRole}`);
+      } else {
+        const data = await res.json();
+        alert("Failed to update user role: " + (data.error || "Unknown error"));
+      }
+    } catch (err) {
+      alert("Error communicating with user update server.");
+    }
+  };
+
+  const executeAdminAction = async (payload: Record<string, any>) => {
+    try {
+      const res = await fetch("/api/storage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const totalCnt = data.globalTotalAdsCount ?? data.totalAdsCount;
+        const verCnt = data.globalVerifiedCount ?? data.verifiedCount;
+
+        if (data.adminStats) {
+          setAdminStats(data.adminStats);
+          if (data.adminStats.byCategory) {
+            localStorage.setItem("searchbiz_category_counts", JSON.stringify(data.adminStats.byCategory));
+          }
+        }
+        if (typeof totalCnt === "number") {
+          localStorage.setItem("searchbiz_total_ads_count", String(totalCnt));
+        }
+        if (typeof verCnt === "number") {
+          localStorage.setItem("searchbiz_verified_count", String(verCnt));
+        }
+        if (payload.adminAction === "bulk_purge") {
+          if (payload.scope === "all" || totalCnt === 0) {
+            setAds([]);
+            setAdminPageAds([]);
+            setAdminFilteredTotal(0);
+            setTrashAds([]);
+            clearLocalAdsCache();
+          } else if (Array.isArray(data?.data?.ads)) {
+            setAds(data.data.ads);
+          }
+        }
+        await refreshAdminServerAds();
+        window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+        return data;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.details || errData.error || `Server returned ${res.status}`);
+      }
+    } catch (err) {
+      console.error("Admin action failed:", err);
+      throw err;
+    }
+  };
+
+  const removeAd = (id: string) => {
+    if (confirm("Are you sure you want to remove this advertisement listing?")) {
+      const updatedAds = ads.filter(a => a.id !== id);
+      setAds(updatedAds);
+      if (adminPageAds) {
+        setAdminPageAds(adminPageAds.filter(a => a.id !== id));
+      }
+
+      // Save to centralized database key
+      deleteAd(id);
+      setTimeout(() => refreshAdminServerAds(), 250);
+      console.log("Listing successfully removed and purged from server registers.");
+    }
+  };
+
+  const toggleAdActive = (adId: string) => {
+    const target = (adminPageAds || ads).find(a => a.id === adId);
+    const nextActive = target ? (target as any).isActive === false : true;
+    const applyUpdate = (list: any[]) =>
+      list.map(a => (a.id === adId ? { ...a, isActive: nextActive } : a));
+    setAds(prev => applyUpdate(prev));
+    if (adminPageAds) setAdminPageAds(prev => (prev ? applyUpdate(prev) : prev));
+    executeAdminAction({ adminAction: "update_ad_field", adId, updates: { isActive: nextActive } });
+  };
+
+  const changeAdClaimStatus = (adId: string, isClaimed: boolean) => {
+    const applyUpdate = (list: any[]) =>
+      list.map(a => (a.id === adId ? { ...a, isClaimed } : a));
+    setAds(prev => applyUpdate(prev));
+    if (adminPageAds) setAdminPageAds(prev => (prev ? applyUpdate(prev) : prev));
+    executeAdminAction({ adminAction: "update_ad_field", adId, updates: { isClaimed } });
+  };
+
+  const changeAdClaimIntention = (adId: string, value: string) => {
+    const applyUpdate = (list: any[]) =>
+      list.map(a => (a.id === adId ? { ...a, claimIntention: value || null } : a));
+    setAds(prev => applyUpdate(prev));
+    if (adminPageAds) setAdminPageAds(prev => (prev ? applyUpdate(prev) : prev));
+    executeAdminAction({ adminAction: "update_ad_field", adId, updates: { claimIntention: value || null } });
+  };
+
+  const handleToggleApprove = async (adId: string, approved: boolean) => {
+    const applyUpdate = (list: any[]) =>
+      list.map(a =>
+        a.id === adId
+          ? {
+              ...a,
+              isApproved: approved,
+              adminApproved: approved,
+              status: approved ? "approved" : "pending",
+              approvalStatus: approved ? "approved" : "pending",
+            }
+          : a
+      );
+    setAds(prev => applyUpdate(prev));
+    if (adminPageAds) setAdminPageAds(prev => (prev ? applyUpdate(prev) : prev));
+    await executeAdminAction({
+      adminAction: "toggle_approve",
+      adId,
+      approved,
+    });
+  };
+
+  const handleBulkApproveSelected = async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    const applyUpdate = (list: any[]) =>
+      list.map(a =>
+        idSet.has(a.id)
+          ? {
+              ...a,
+              isApproved: true,
+              adminApproved: true,
+              status: "approved",
+              approvalStatus: "approved",
+            }
+          : a
+      );
+    setAds(prev => applyUpdate(prev));
+    if (adminPageAds) setAdminPageAds(prev => (prev ? applyUpdate(prev) : prev));
+    setSelectedAdIds([]);
+    await executeAdminAction({
+      adminAction: "approve_selected",
+      adIds: ids,
+    });
+    alert(`Successfully approved ${ids.length.toLocaleString()} listing(s)!`);
+  };
+
+  const handleApproveAllPending = async () => {
+    const pendingCount =
+      adminStats?.pendingApproval ??
+      ads.filter(a => a.adminApproved !== true && !a.verified && !a.isPremium && !a.isSponsor).length;
+    if (pendingCount === 0) {
+      alert("All listings are already approved! No pending listings found.");
+      return;
+    }
+    if (
+      !confirm(
+        `Are you sure you want to approve ALL ${pendingCount.toLocaleString()} pending listing(s) in the database?`
+      )
+    )
+      return;
+
+    setIsSyncingAds(true);
+    try {
+      await executeAdminAction({ adminAction: "approve_all_pending" });
+      alert(`Approved all ${pendingCount.toLocaleString()} pending listing(s)!`);
+    } finally {
+      setIsSyncingAds(false);
+    }
+  };
+
+  const handleResetAllUnverifiedToPending = async () => {
+    const totalApproved = adminStats?.approved ?? 0;
+    if (
+      !confirm(
+        `Reset all unverified / unclaimed listings back to Pending Approval status so you can review and approve them manually?`
+      )
+    )
+      return;
+    setIsSyncingAds(true);
+    try {
+      await executeAdminAction({ adminAction: "unapprove_all_unverified" });
+      alert(`All unverified listings (${totalApproved.toLocaleString()}) have been reset to Pending Approval.`);
+    } finally {
+      setIsSyncingAds(false);
+    }
+  };
+
+  const getFilteredAds = () => {
+    return ads.filter(ad => {
+      // 1. Search term filter (title, description, phone, address, servicesOffered, ownerDetails)
+      if (adSearchTerm.trim()) {
+        const query = adSearchTerm.toLowerCase();
+        
+        const owner = users.find(u => 
+          (u.email && ad.email && u.email.trim().toLowerCase() === ad.email.trim().toLowerCase()) ||
+          (u.id && ad.userId && String(u.id) === String(ad.userId)) ||
+          (u.email && ad.ownerEmail && u.email.trim().toLowerCase() === ad.ownerEmail.trim().toLowerCase()) ||
+          (u.email && ad.userEmail && u.email.trim().toLowerCase() === ad.userEmail.trim().toLowerCase())
+        );
+        const ownerMatches = owner ? (
+          (owner.email || "").toLowerCase().includes(query) ||
+          (owner.fullName || "").toLowerCase().includes(query) ||
+          (owner.businessName || "").toLowerCase().includes(query) ||
+          (owner.memberId || "").toLowerCase().includes(query) ||
+          (owner.idNumber || "").toLowerCase().includes(query)
+        ) : false;
+
+        const matchesText = 
+          (ad.title || "").toLowerCase().includes(query) ||
+          (ad.description || "").toLowerCase().includes(query) ||
+          (ad.servicesOffered || "").toLowerCase().includes(query) ||
+          (ad.phone || "").toLowerCase().includes(query) ||
+          (ad.address || "").toLowerCase().includes(query) ||
+          ownerMatches;
+        if (!matchesText) return false;
+      }
+
+      // 2. Province filter
+      if (adSearchProvince !== "all") {
+        const selectedProvObj = SA_PROVINCES.find(
+          (p) => p.slug === adSearchProvince || p.name.toLowerCase() === adSearchProvince.toLowerCase()
+        );
+        if (selectedProvObj) {
+          const targetSlug = selectedProvObj.slug.toLowerCase();
+          const targetName = selectedProvObj.name.toLowerCase();
+
+          const adProv = (ad.province || "").toLowerCase();
+          const adLoc = (ad.location || "").toLowerCase();
+          const adAddr = (ad.address || "").toLowerCase();
+          const adSub = (ad.suburb || "").toLowerCase();
+
+          const norm = (s: string) => s.replace(/[^a-z0-9]/g, "");
+
+          const directProvMatch =
+            adProv === targetSlug ||
+            adProv === targetName ||
+            (adProv && norm(adProv) === norm(targetSlug)) ||
+            (adProv && norm(adProv) === norm(targetName));
+
+          const directLocMatch =
+            adLoc === targetName ||
+            adLoc === targetSlug ||
+            (adLoc && norm(adLoc) === norm(targetSlug)) ||
+            (adLoc && norm(adLoc) === norm(targetName));
+
+          const addrMatch =
+            adAddr.includes(targetName) ||
+            adAddr.includes(targetSlug) ||
+            (targetSlug !== "national" && norm(adAddr).includes(norm(targetName)));
+
+          const townMatch =
+            selectedProvObj.towns &&
+            selectedProvObj.towns.length > 0 &&
+            selectedProvObj.towns.some((t) => {
+              const tLower = t.toLowerCase();
+              if (tLower === "all locations") return false;
+              return (
+                adLoc === tLower ||
+                adSub === tLower ||
+                adAddr.includes(tLower)
+              );
+            });
+
+          if (!directProvMatch && !directLocMatch && !addrMatch && !townMatch) {
+            return false;
+          }
+        }
+      }
+
+      // 3. City/Town filter
+      if (adSearchCity.trim()) {
+        const cityQuery = adSearchCity.trim().toLowerCase();
+        const matchesCity = 
+          (ad.address || "").toLowerCase().includes(cityQuery) ||
+          (ad.location || "").toLowerCase().includes(cityQuery) ||
+          (ad.suburb || "").toLowerCase().includes(cityQuery) ||
+          (ad.properName || "").toLowerCase().includes(cityQuery) ||
+          (ad.title || "").toLowerCase().includes(cityQuery);
+        if (!matchesCity) return false;
+      }
+
+      // 4. Category filter
+      if (adSearchCategory !== "all") {
+        const targetCat = adSearchCategory.trim().toLowerCase();
+        const adCat = (ad.category || "").trim().toLowerCase();
+        const adSubCat = (ad.subcategory || "").trim().toLowerCase();
+
+        const normTarget = targetCat.replace(/[^a-z0-9]/g, "");
+        const normAdCat = adCat.replace(/[^a-z0-9]/g, "");
+
+        const matchesCategory =
+          adCat === targetCat ||
+          adSubCat === targetCat ||
+          (normAdCat && normTarget && (normAdCat.includes(normTarget) || normTarget.includes(normAdCat))) ||
+          adCat.includes(targetCat) ||
+          targetCat.includes(adCat);
+
+        if (!matchesCategory) return false;
+      }
+
+      // 5. Source filter: CSV Uploads vs Preference Ads
+      if (adSourceFilter === "csv") {
+        if (!ad.id?.startsWith("csv_") && !ad.id?.startsWith("csv-") && !ad.id?.startsWith("ad-agent-")) {
+          return false;
+        }
+      } else if (adSourceFilter === "preference") {
+        if (ad.id?.startsWith("csv_") || ad.id?.startsWith("csv-") || ad.id?.startsWith("ad-agent-")) {
+          return false;
+        }
+      }
+
+      // 6. Type filter: free, premium, sponsor, claimed, unclaimed, removal request, claimed free
+      if (adTypeFilter === "free") {
+        if (ad.isPremium || ad.isSponsor) return false;
+      } else if (adTypeFilter === "premium") {
+        if (!ad.isPremium || ad.isSponsor) return false;
+      } else if (adTypeFilter === "sponsor") {
+        if (!ad.isSponsor) return false;
+      } else if (adTypeFilter === "claimed") {
+        if (ad.isClaimed !== true) return false;
+      } else if (adTypeFilter === "unclaimed") {
+        if (ad.isClaimed === true || ad.verified) return false;
+      } else if (adTypeFilter === "remove") {
+        if (ad.claimIntention !== "remove") return false;
+      } else if (adTypeFilter === "claimed_free") {
+        if (ad.isClaimed !== true || ad.claimIntention !== "free") return false;
+      } else if (adTypeFilter === "pending_approval") {
+        if (ad.adminApproved === true || ad.verified === true || ad.isPremium === true || ad.isSponsor === true) return false;
+      } else if (adTypeFilter === "approved") {
+        if (ad.adminApproved !== true && ad.verified !== true && ad.isPremium !== true && ad.isSponsor !== true) return false;
+      }
+
+      return true;
+    });
+  };
+
+  const getAdsToPurgeCount = (): number => {
+    if (adminStats) {
+      switch (deleteScope) {
+        case "all":
+          return adminStats.total;
+        case "province": {
+          const slug = deleteSelectedProvince.toLowerCase();
+          return adminStats.byProvince?.[slug] ?? 0;
+        }
+        case "category": {
+          const cat = deleteSelectedCategory.toLowerCase();
+          return adminStats.byCategory?.[cat] ?? 0;
+        }
+        case "csv":
+          return adminStats.csvAndBot;
+        case "unclaimed":
+          return adminStats.unclaimed;
+        case "filtered":
+          return adminFilteredTotal ?? getFilteredAds().length;
+        case "selected":
+          return selectedAdIds.length;
+        default:
+          return 0;
+      }
+    }
+    return getAdsToPurge().length;
+  };
+
+  const getAdsToPurge = () => {
+    const sourceList = adminPageAds || ads;
+    switch (deleteScope) {
+      case "all":
+        return sourceList;
+      case "province": {
+        const selectedProvObj = SA_PROVINCES.find(
+          (p) => p.slug === deleteSelectedProvince || p.name.toLowerCase() === deleteSelectedProvince.toLowerCase()
+        );
+        if (!selectedProvObj) return [];
+        const targetSlug = selectedProvObj.slug.toLowerCase();
+        const targetName = selectedProvObj.name.toLowerCase();
+        const norm = (s: string) => s.replace(/[^a-z0-9]/g, "");
+
+        return sourceList.filter(ad => {
+          const adProv = (ad.province || "").toLowerCase();
+          const adLoc = (ad.location || "").toLowerCase();
+          const adAddr = (ad.address || "").toLowerCase();
+          const adSub = (ad.suburb || "").toLowerCase();
+
+          const directProvMatch =
+            adProv === targetSlug ||
+            adProv === targetName ||
+            (adProv && norm(adProv) === norm(targetSlug)) ||
+            (adProv && norm(adProv) === norm(targetName));
+
+          const directLocMatch =
+            adLoc === targetName ||
+            adLoc === targetSlug ||
+            (adLoc && norm(adLoc) === norm(targetSlug)) ||
+            (adLoc && norm(adLoc) === norm(targetName));
+
+          const addrMatch =
+            adAddr.includes(targetName) ||
+            adAddr.includes(targetSlug) ||
+            (targetSlug !== "national" && norm(adAddr).includes(norm(targetName)));
+
+          const townMatch =
+            selectedProvObj.towns &&
+            selectedProvObj.towns.length > 0 &&
+            selectedProvObj.towns.some((t) => {
+              const tLower = t.toLowerCase();
+              if (tLower === "all locations") return false;
+              return adLoc === tLower || adSub === tLower || adAddr.includes(tLower);
+            });
+
+          return directProvMatch || directLocMatch || addrMatch || townMatch;
+        });
+      }
+      case "category": {
+        const targetCat = deleteSelectedCategory.trim().toLowerCase();
+        const normTarget = targetCat.replace(/[^a-z0-9]/g, "");
+        return sourceList.filter(ad => {
+          const adCat = (ad.category || "").trim().toLowerCase();
+          const adSubCat = (ad.subcategory || "").trim().toLowerCase();
+          const normAdCat = adCat.replace(/[^a-z0-9]/g, "");
+          return (
+            adCat === targetCat ||
+            adSubCat === targetCat ||
+            (normAdCat && normTarget && (normAdCat.includes(normTarget) || normTarget.includes(normAdCat)))
+          );
+        });
+      }
+      case "csv":
+        return sourceList.filter(a => a.id?.startsWith("csv_") || a.id?.startsWith("csv-") || a.id?.startsWith("ad-agent-"));
+      case "unclaimed":
+        return sourceList.filter(a => a.isClaimed !== true && !a.verified);
+      case "filtered":
+        return adminPageAds || getFilteredAds();
+      case "selected":
+        return sourceList.filter(a => selectedAdIds.includes(a.id));
+      default:
+        return [];
+    }
+  };
+
+  const handleExecuteBulkPurge = async () => {
+    setDeletePasswordError("");
+    if (!deletePasswordInput.trim()) {
+      setDeletePasswordError("Please enter the master authorization password.");
+      return;
+    }
+    if (deletePasswordInput.trim() !== REQUIRED_DELETE_PASSWORD) {
+      setDeletePasswordError("Invalid master authorization password. Purge operation declined.");
+      return;
+    }
+
+    const purgeCount = getAdsToPurgeCount();
+    if (deleteScope === "selected" && selectedAdIds.length === 0) {
+      alert("No advertisements selected for deletion.");
+      return;
+    }
+
+    setIsDeletingBulk(true);
+    try {
+      const targetIds =
+        deleteScope === "selected"
+          ? selectedAdIds
+          : deleteScope === "filtered"
+          ? (adminPageAds || getFilteredAds()).map(a => a.id)
+          : [];
+      const res = await executeAdminAction({
+        adminAction: "bulk_purge",
+        scope: deleteScope,
+        province: deleteSelectedProvince,
+        category: deleteSelectedCategory,
+        adIds: targetIds,
+      });
+      setSelectedAdIds([]);
+      setIsDeleteModalOpen(false);
+      setDeletePasswordInput("");
+      setDeletePasswordError("");
+      const remainingCount = res?.globalTotalAdsCount ?? res?.totalAdsCount ?? 0;
+      alert(
+        `Operation Complete: Successfully deleted and purged ${purgeCount.toLocaleString()} listing(s) from SearchBiz database. Remaining live ads: ${remainingCount.toLocaleString()}`
+      );
+    } catch (e: any) {
+      alert(`Error executing purge: ${e?.message || "Server issue occurred."}`);
+    } finally {
+      setIsDeletingBulk(false);
+    }
+  };
+
+  const changeAdTier = (adId: string, value: string) => {
+    const isPremiumValue = value === "PREMIUM" || value === "SPONSOR" || value === "SPOTLIGHT" || value === "BANNER" || value === "VIDEO";
+    const isSponsorValue = value === "SPONSOR";
+    const isSpotlightValue = value === "SPOTLIGHT";
+    const isBannerValue = value === "BANNER";
+    const isVideoValue = value === "VIDEO";
+
+    const updates = {
+      isPremium: isPremiumValue,
+      isSponsor: isSponsorValue,
+      isSpotlight: isSpotlightValue,
+      isBannerPlacement: isBannerValue,
+      isVideoPromo: isVideoValue,
+      isClaimed: isPremiumValue,
+      verified: isPremiumValue,
+      isVerified: isPremiumValue,
+      isRecommended: isPremiumValue,
+      isLockedLevel1: !isPremiumValue,
+      adminApproved: isPremiumValue,
+      isApproved: isPremiumValue,
+      plan: isPremiumValue ? "LEVEL_2_R199" : "FREE",
+    };
+
+    const applyUpdate = (list: any[]) =>
+      list.map(a => (a.id === adId ? { ...a, ...updates } : a));
+    setAds(prev => applyUpdate(prev));
+    if (adminPageAds) setAdminPageAds(prev => (prev ? applyUpdate(prev) : prev));
+    executeAdminAction({ adminAction: "update_ad_field", adId, updates });
+  };
+
+  const changeAdPosition = (adId: string, value: string) => {
+    const applyUpdate = (list: any[]) =>
+      list.map(a => (a.id === adId ? { ...a, fixedPosition: value } : a));
+    setAds(prev => applyUpdate(prev));
+    if (adminPageAds) setAdminPageAds(prev => (prev ? applyUpdate(prev) : prev));
+    executeAdminAction({ adminAction: "update_ad_field", adId, updates: { fixedPosition: value } });
+  };
+
+  const changeAdSectionTarget = (adId: string, value: string) => {
+    const applyUpdate = (list: any[]) =>
+      list.map(a => (a.id === adId ? { ...a, sectionTarget: value } : a));
+    setAds(prev => applyUpdate(prev));
+    if (adminPageAds) setAdminPageAds(prev => (prev ? applyUpdate(prev) : prev));
+    executeAdminAction({ adminAction: "update_ad_field", adId, updates: { sectionTarget: value } });
+  };
+
+  const renderAdPaginationControls = (position: "top" | "bottom") => {
+    const totalCount = adminFilteredTotal !== null ? adminFilteredTotal : getFilteredAds().length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
+    const safePage = Math.min(Math.max(1, adPage), totalPages);
+
+    if (totalCount === 0) return null;
+
+    const startItem = (safePage - 1) * ITEMS_PER_PAGE + 1;
+    const endItem = Math.min(safePage * ITEMS_PER_PAGE, totalCount);
+
+    const pages = [];
+    const maxPagesToShow = 5;
+    let startPage = Math.max(1, safePage - 2);
+    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+    if (endPage - startPage < maxPagesToShow - 1) {
+      startPage = Math.max(1, endPage - maxPagesToShow + 1);
+    }
+
+    for (let p = startPage; p <= endPage; p++) {
+      pages.push(p);
+    }
+
+    return (
+      <div className={`flex flex-wrap items-center justify-between gap-3 px-6 py-3.5 bg-slate-50 text-xs font-medium border-slate-200 ${
+        position === "top" ? "border-b" : "border-t"
+      }`}>
+        <div className="flex items-center gap-2 text-slate-600">
+          <span className="font-semibold">
+            Showing <strong>{startItem.toLocaleString()}–{endItem.toLocaleString()}</strong> of <strong>{totalCount.toLocaleString()}</strong> ads
+          </span>
+          <span className="text-slate-300">|</span>
+          <span className="font-bold text-slate-800">Page {safePage.toLocaleString()} of {totalPages.toLocaleString()}</span>
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            disabled={safePage <= 1}
+            onClick={() => setAdPage(prev => Math.max(1, prev - 1))}
+            className="px-3 py-1.5 rounded-xl border border-slate-250 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-800 font-bold transition flex items-center gap-1 shadow-sm text-xs"
+          >
+            ← Prev
+          </button>
+
+          {startPage > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() => setAdPage(1)}
+                className="px-2.5 py-1.5 rounded-xl border border-slate-250 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs"
+              >
+                1
+              </button>
+              {startPage > 2 && <span className="px-1 text-slate-400 font-bold">...</span>}
+            </>
+          )}
+
+          {pages.map(p => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setAdPage(p)}
+              className={`px-3 py-1.5 rounded-xl font-bold transition text-xs ${
+                p === safePage
+                  ? "bg-emerald-600 text-white shadow-sm font-black"
+                  : "border border-slate-250 bg-white hover:bg-slate-100 text-slate-800"
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+
+          {endPage < totalPages && (
+            <>
+              {endPage < totalPages - 1 && <span className="px-1 text-slate-400 font-bold">...</span>}
+              <button
+                type="button"
+                onClick={() => setAdPage(totalPages)}
+                className="px-2.5 py-1.5 rounded-xl border border-slate-250 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs"
+              >
+                {totalPages}
+              </button>
+            </>
+          )}
+
+          <button
+            type="button"
+            disabled={safePage >= totalPages}
+            onClick={() => setAdPage(prev => Math.min(totalPages, prev + 1))}
+            className="px-3 py-1.5 rounded-xl border border-slate-250 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-800 font-bold transition flex items-center gap-1 shadow-sm text-xs"
+          >
+            Next →
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const mappedUsers = users.map((u: any) => ({
+    ...u,
+    joined: u.joined || (u.createdAt ? u.createdAt.split('T')[0] : '2026-01-01'),
+    lastLoginIP: u.lastLoginIP || u.lastLoginIp || '102.132.89.44',
+    device: u.device || u.deviceInfo || 'MacBook Pro / Chrome',
+    location: u.location || 'Durban, KZN'
+  }));
+
+  const filteredUsers = mappedUsers.filter(u => {
+    const term = userSearch.toLowerCase().trim();
+    if (!term) return true;
+    return (
+      (u.email || "").toLowerCase().includes(term) || 
+      (u.location || "").toLowerCase().includes(term) ||
+      (u.idNumber || "").toLowerCase().includes(term) ||
+      (u.memberId || "").toLowerCase().includes(term) ||
+      (u.fullName || "").toLowerCase().includes(term) ||
+      (u.businessName || "").toLowerCase().includes(term) ||
+      (u.phone || "").toLowerCase().includes(term)
+    );
+  });
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const usersTodayCount = mappedUsers.filter(u => u.joined === todayStr).length;
+
+  if (isLoading || !user || !isAdmin) return <div className="p-20 text-center text-slate-500 text-sm">Authenticating Secure Session...</div>;
+
+  return (
+    <div className="max-w-7xl mx-auto py-12 px-2 sm:px-6 w-full min-w-0 overflow-x-hidden">
+      {selectedAd && (
+        <AdDetailModal ad={selectedAd} onClose={() => setSelectedAd(null)} />
+      )}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 pb-6 border-b border-slate-200 gap-4">
+        <div className="flex items-center">
+          <div className="bg-slate-900 p-3 rounded-xl mr-4 shadow-sm shrink-0">
+            <ShieldAlert className="w-8 h-8 text-white" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-display font-bold text-slate-900 tracking-tight">System Control</h1>
+            <p className="text-slate-500 mt-1 max-w-sm font-medium">Global oversight and user intelligence platform.</p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-3 text-sm">
+          <button
+            onClick={() => {
+              setActiveTab('ads');
+              setDeleteScope("all");
+              setDeletePasswordInput("");
+              setDeletePasswordError("");
+              setIsDeleteModalOpen(true);
+            }}
+            className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md shadow-rose-600/25 flex items-center gap-2 cursor-pointer"
+            id="top-header-purge-btn"
+            title="Open Master Deletion & Database Cleanup Tool"
+          >
+            <Trash2 className="w-4 h-4 text-white" />
+            <span>Delete / Purge Ads</span>
+          </button>
+          <div className="flex flex-col items-end">
+            <span className="px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 font-medium font-mono text-xs shadow-inner">
+               AUTH_LVL: ROOT_ADMIN
+            </span>
+            <span className="text-[10px] text-slate-400 mt-1 font-bold">NODE: SA-ZAR-01</span>
+          </div>
+          <button className="bg-white border border-slate-200 text-slate-700 p-2.5 rounded-lg hover:bg-slate-50 shadow-sm transition-colors">
+            <Settings className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Dynamic Grid Layout for Vertical Tabs */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 mt-8">
+        
+        {/* UNIFIED VERTICAL ADMIN PANEL MENU */}
+        <div className="lg:col-span-1 space-y-4">
+          <div className="border border-slate-200 bg-white rounded-2xl p-4 shadow-sm space-y-2 flex flex-col">
+            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block border-b border-slate-100 pb-2">Admin Panel Menu</span>
+            
+            <div className="space-y-1.5 flex flex-col">
+              {[
+                { id: 'overview', label: 'User Intelligence', icon: Users, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'business_hub', label: 'All Businesses & Email Hub', icon: Building2, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'ads', label: 'Advertisement Control', icon: Database, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'mapping_requests', label: `Area Mapping Requests (${mappingRequests.filter(r => r.status === 'PENDING').length})`, icon: MapPin, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'duplicates', label: 'Duplicate & Multi-Ads', icon: Copy, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'csv_uploads', label: `CSV Upload & Claims (${claimRequests.filter(c => c?.status === 'PENDING').length})`, icon: LayoutTemplate, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'trash', label: `Recycle Bin & Trash (${trashAds.length})`, icon: Trash2, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'slugs', label: `Custom URL Slugs (${customSlugs.length})`, icon: Sparkles, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'premium', label: `Premium Review (${premiumApps.filter(a => a.status === 'PENDING').length})`, icon: ShieldAlert, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'banners', label: 'Global Site Banners', icon: LayoutTemplate, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+                { id: 'reports', label: `Security Reports (${reports.length})`, icon: ShieldAlert, activeClass: 'bg-emerald-650 text-white', inactiveClass: 'text-slate-650 hover:bg-slate-50' },
+              ].map(tab => {
+                const Icon = tab.icon;
+                const isSelected = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border ${
+                      isSelected 
+                        ? 'bg-emerald-600 text-white shadow-sm border-transparent' 
+                        : `${tab.inactiveClass} border-transparent`
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate text-left">{tab.label}</span>
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => router.push('/matomo')}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-indigo-650 hover:bg-indigo-50 transition-all border border-transparent"
+              >
+                <Globe className="w-4 h-4 shrink-0 text-indigo-500" />
+                <span className="truncate text-left">Matomo Analytics</span>
+              </button>
+
+              <div className="pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => {
+                    setActiveTab('ads');
+                    setDeleteScope("all");
+                    setDeletePasswordInput("");
+                    setDeletePasswordError("");
+                    setIsDeleteModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-all shadow-sm cursor-pointer"
+                  id="sidebar-purge-ads-btn"
+                >
+                  <Trash2 className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span className="truncate text-left font-bold">Delete / Purge Ads</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tab contents right-hand column */}
+        <div className="lg:col-span-4 space-y-8 min-w-0 w-full overflow-hidden">
+
+      {activeTab === 'business_hub' && (
+        <AdminBusinessHub ads={adminPageAds || ads || []} onRefreshAds={refreshAdminServerAds} />
+      )}
+
+      {activeTab === 'mapping_requests' && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm relative overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-100 shadow-sm">
+                  <MapPin className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 font-display">
+                    Regional Area Mapping Requests
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-500">
+                    User submissions for unmapped towns, suburbs, and requested regional onboarding.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-bold">
+                  {mappingRequests.filter(r => r.status === 'PENDING').length} Pending
+                </span>
+                <span className="px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full text-xs font-bold">
+                  {mappingRequests.filter(r => r.status === 'MAPPED').length} Mapped
+                </span>
+              </div>
+            </div>
+
+            {mappingRequests.length === 0 ? (
+              <div className="text-center py-16 text-slate-400 space-y-3">
+                <MapPin className="w-12 h-12 mx-auto text-slate-300 stroke-1" />
+                <p className="text-sm font-medium">No area mapping requests received yet.</p>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  When visitors search for unmapped locations, their requests will appear here for onboarding and review.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-4">
+                {mappingRequests.map((req) => {
+                  const isPending = req.status === 'PENDING';
+                  const isMapped = req.status === 'MAPPED';
+                  const isInProgress = req.status === 'IN_PROGRESS';
+
+                  return (
+                    <div
+                      key={req.id}
+                      className="border border-slate-200 rounded-2xl p-5 hover:border-slate-300 transition bg-white shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-5"
+                    >
+                      <div className="space-y-2 flex-1">
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <span className="text-base font-bold text-slate-900 font-display">
+                            📍 {req.areaName}
+                          </span>
+                          {req.province && (
+                            <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-medium border border-slate-200">
+                              {req.province}
+                            </span>
+                          )}
+                          {req.postalCode && (
+                            <span className="px-2.5 py-0.5 bg-amber-50 text-amber-800 rounded-lg text-xs font-mono font-bold border border-amber-200">
+                              Postal Code: {req.postalCode}
+                            </span>
+                          )}
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                            isPending ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                            isMapped ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                            isInProgress ? 'bg-blue-100 text-blue-800 border border-blue-300' :
+                            'bg-slate-100 text-slate-700 border border-slate-200'
+                          }`}>
+                            {req.status}
+                          </span>
+                        </div>
+
+                        {req.businessTypes && (
+                          <p className="text-xs text-slate-700">
+                            <strong>Requested Businesses:</strong> {req.businessTypes}
+                          </p>
+                        )}
+
+                        {req.notes && (
+                          <p className="text-xs text-slate-500 italic bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                            "{req.notes}"
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500 pt-1">
+                          <span>Requester: <strong className="text-slate-700">{req.requesterName}</strong></span>
+                          {req.requesterPhone && (
+                            <span className="flex items-center gap-1 text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md font-semibold border border-emerald-200">
+                              <Phone className="w-3 h-3 text-emerald-600" /> WhatsApp: {req.requesterPhone}
+                            </span>
+                          )}
+                          {req.requesterEmail && (
+                            <span>Email: <strong className="text-slate-700">{req.requesterEmail}</strong></span>
+                          )}
+                          {req.notifyOnListing && (
+                            <span className="flex items-center gap-1 text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md font-bold border border-amber-200 text-[11px]">
+                              <BellRing className="w-3 h-3 text-amber-600" /> Contact when listed
+                            </span>
+                          )}
+                          <span className="text-slate-400">
+                            {new Date(req.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Action Controls */}
+                      <div className="flex flex-wrap lg:flex-col items-stretch gap-2 shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0 border-slate-100">
+                        {req.requesterPhone && (
+                          <a
+                            href={formatWhatsAppLink(
+                              req.requesterPhone,
+                              `Hello ${req.requesterName}, this is SearchBiz Admin regarding your request to map businesses in "${req.areaName}". We are updating our directory for your area!`
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-[#25D366] hover:bg-[#1EBE5D] text-slate-950 font-black rounded-xl text-xs transition shadow-sm"
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                            <span>WhatsApp User</span>
+                          </a>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const chatMsg = encodeURIComponent(
+                              `Hello ${req.requesterName}, regarding your request to map businesses in "${req.areaName}": `
+                            );
+                            router.push(`/messages?to=${encodeURIComponent(req.requesterEmail || req.requesterPhone)}&msg=${chatMsg}`);
+                          }}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Admin Portal Chat</span>
+                        </button>
+
+                        <div className="flex items-center gap-1.5">
+                          {isPending && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateMappingRequestStatus(req.id, 'IN_PROGRESS')}
+                              className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold transition cursor-pointer"
+                            >
+                              Set In Progress
+                            </button>
+                          )}
+                          {!isMapped && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateMappingRequestStatus(req.id, 'MAPPED')}
+                              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold transition cursor-pointer"
+                            >
+                              Mark Mapped
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMappingRequest(req.id)}
+                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-200 transition cursor-pointer"
+                            title="Delete Request"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'duplicates' && (
+        <AdminDuplicateManager
+          ads={ads}
+          onUpdateAds={(updated) => {
+            setAds(updated);
+            saveStoredAds(updated);
+          }}
+          onViewAd={(ad) => setSelectedAd(ad)}
+          users={users}
+        />
+      )}
+
+      {activeTab === 'banners' && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+           <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-20"></div>
+             <div className="relative z-10 flex flex-col md:flex-row md:items-start justify-between gap-6">
+               <div>
+                 <h2 className="text-xl font-bold text-slate-900 font-display mb-2">Global UI Banner Control</h2>
+                 <p className="text-sm text-slate-500">Inject banner advertisements across the entire platform or specific pages.</p>
+               </div>
+               <button onClick={handleCreateBanner} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-emerald-700 transition self-start shrink-0">
+                 + Create New Banner
+               </button>
+             </div>
+             
+             {editingBanner && (
+               <div className="relative z-10 mt-8 bg-slate-50 border border-slate-200 p-6 rounded-2xl">
+                 <div className="flex justify-between items-center mb-6 border-b border-slate-200 pb-4">
+                   <h3 className="font-bold text-slate-800 flex items-center gap-2"><Edit className="w-4 h-4"/> Edit Banner</h3>
+                   <button onClick={() => setEditingBanner(null)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+                 </div>
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                   <div className="space-y-4">
+                     <div>
+                       <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Banner Name (Internal)</label>
+                       <input type="text" value={editingBanner.name} onChange={(e) => handleUpdateBanner(e, "name")} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                     </div>
+                     <div>
+                       <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Display Text / Headline</label>
+                       <input type="text" value={editingBanner.text || ""} onChange={(e) => handleUpdateBanner(e, "text")} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                     </div>
+                     <div>
+                       <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Redirect URL</label>
+                       <input type="text" value={editingBanner.link || ""} onChange={(e) => handleUpdateBanner(e, "link")} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                     </div>
+                   </div>
+                   <div className="space-y-4">
+                     <div>
+                       <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Placement Strategy</label>
+                       <select value={editingBanner.placement} onChange={(e) => handleUpdateBanner(e, "placement")} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
+                          <option value="Top Sticky">Top Sticky (Header)</option>
+                          <option value="Interstitial">Interstitial (Middle of Lists)</option>
+                          <option value="Float">Floating (Bottom Center)</option>
+                       </select>
+                     </div>
+                     <div>
+                       <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Page Visibility</label>
+                       <select value={editingBanner.visibility || "All Pages"} onChange={(e) => handleUpdateBanner(e, "visibility")} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
+                          <option value="All Pages">All Pages</option>
+                          <option value="Home Only">Home Desktop</option>
+                          <option value="Search Results Only">Directory / Search Pages</option>
+                           <option value="News Feed Only">News Feed Only</option>
+                           <option value="Tools Workspace Only">Tools Workspace Only</option>
+                       </select>
+                     </div>
+                     <div>
+                       <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Background Image URL (Optional)</label>
+                       <input type="text" placeholder="https://..." value={editingBanner.image || ""} onChange={(e) => handleUpdateBanner(e, "image")} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                     </div>
+                   </div>
+                 </div>
+               </div>
+             )}
+           </div>
+
+           <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+             <div className="flex items-center justify-between mb-6">
+               <div className="flex items-center gap-3">
+                 <ShieldAlert className="w-6 h-6 text-amber-500" />
+                 <h3 className="font-bold text-slate-900 font-display">Active Banner Registry</h3>
+               </div>
+             </div>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {banners.map((b) => (
+                  <div key={b.id} className="flex flex-col p-5 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 transition">
+                    <div className="flex items-center justify-between mb-4">
+                       <div className="flex items-center gap-3">
+                          <button onClick={() => handleToggleBannerStatus(b.id)} className={`w-3 h-3 rounded-full ${b.status === 'LIVE' ? 'bg-emerald-500 animate-pulse ring-4 ring-emerald-500/20' : 'bg-slate-300'}`} title="Toggle Status"></button>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900 leading-tight">{b.name}</p>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{b.placement} • {b.visibility}</p>
+                          </div>
+                       </div>
+                       <div className="flex gap-1 bg-white border border-slate-200 rounded-lg p-1">
+                          <button onClick={() => setEditingBanner(b)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded"><Edit className="w-4 h-4"/></button>
+                          <button onClick={() => handleDeleteBanner(b.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"><Trash2 className="w-4 h-4"/></button>
+                       </div>
+                    </div>
+                    {b.image && (
+                      <div className="w-full h-16 rounded-xl overflow-hidden mb-3 relative">
+                        <img src={b.image} alt={b.name} className="object-cover w-full h-full opacity-60" />
+                      </div>
+                    )}
+                    <div className="text-xs text-slate-600 line-clamp-2 mt-auto">
+                      &ldquo;{b.text}&rdquo;
+                    </div>
+                  </div>
+                ))}
+                {banners.length === 0 && (
+                  <div className="col-span-full py-12 text-center border-2 border-dashed border-slate-200 rounded-2xl">
+                    <LayoutTemplate className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                    <p className="text-slate-500 font-medium">No global banners configured</p>
+                    <button onClick={handleCreateBanner} className="mt-4 text-emerald-600 font-bold text-sm hover:underline">Create your first banner</button>
+                  </div>
+                )}
+             </div>
+           </div>
+        </div>
+      )}
+
+      {/* RECYCLE BIN & TRASH MANAGEMENT TAB */}
+      {activeTab === 'trash' && (
+        <div className="lg:col-span-4 space-y-6">
+          {/* Header Card */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 shrink-0">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-display flex items-center gap-2.5">
+                    <span>Recycle Bin & Ad Recovery</span>
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                      {trashAds.length} items
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Deleted advertisements are safely archived here. Restore them to the live directory with 1 click or permanently erase them.
+                  </p>
+                </div>
+              </div>
+
+              {trashAds.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  {selectedTrashIds.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleRestoreBulkTrash}
+                        disabled={isRestoringTrash}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer disabled:opacity-50"
+                      >
+                        <RotateCcw className={`w-3.5 h-3.5 ${isRestoringTrash ? 'animate-spin' : ''}`} />
+                        <span>Restore Selected ({selectedTrashIds.length})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handlePermanentDeleteBulk}
+                        disabled={isPurgingTrash}
+                        className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer disabled:opacity-50"
+                      >
+                        <Trash2 className={`w-3.5 h-3.5 ${isPurgingTrash ? 'animate-spin' : ''}`} />
+                        <span>Purge Selected ({selectedTrashIds.length})</span>
+                      </button>
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleEmptyTrash}
+                    disabled={isPurgingTrash || trashAds.length === 0}
+                    className="px-4 py-2.5 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Trash className="w-3.5 h-3.5" />
+                    <span>Empty Recycle Bin</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Action Feedback Notification */}
+            {trashFeedback && (
+              <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs font-bold animate-in fade-in duration-200 ${
+                trashFeedback.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                  : 'bg-rose-50 border-rose-200 text-rose-900'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {trashFeedback.type === 'success' ? (
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{trashFeedback.message}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTrashFeedback(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Search Filter & Bulk Selection Header */}
+            {trashAds.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search deleted listings by business name, phone, category, town..."
+                    value={trashSearchTerm}
+                    onChange={(e) => setTrashSearchTerm(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                  />
+                  {trashSearchTerm && (
+                    <button
+                      onClick={() => setTrashSearchTerm("")}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const filteredTrash = trashAds.filter(item => {
+                      if (!trashSearchTerm) return true;
+                      const q = trashSearchTerm.toLowerCase();
+                      return (
+                        item.title?.toLowerCase().includes(q) ||
+                        item.category?.toLowerCase().includes(q) ||
+                        item.city?.toLowerCase().includes(q) ||
+                        item.suburb?.toLowerCase().includes(q) ||
+                        item.phone?.toLowerCase().includes(q) ||
+                        item.email?.toLowerCase().includes(q)
+                      );
+                    });
+                    const allFilteredSelected = filteredTrash.length > 0 && filteredTrash.every(t => selectedTrashIds.includes(t.id));
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (allFilteredSelected) {
+                            setSelectedTrashIds([]);
+                          } else {
+                            setSelectedTrashIds(filteredTrash.map(t => t.id));
+                          }
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold flex items-center gap-2 transition cursor-pointer"
+                      >
+                        {allFilteredSelected ? (
+                          <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+                        ) : (
+                          <Square className="w-3.5 h-3.5 text-slate-400" />
+                        )}
+                        <span>{allFilteredSelected ? "Deselect All" : "Select All"}</span>
+                      </button>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Trash Items List */}
+            {(() => {
+              const filteredTrash = trashAds.filter(item => {
+                if (!trashSearchTerm) return true;
+                const q = trashSearchTerm.toLowerCase();
+                return (
+                  item.title?.toLowerCase().includes(q) ||
+                  item.category?.toLowerCase().includes(q) ||
+                  item.city?.toLowerCase().includes(q) ||
+                  item.suburb?.toLowerCase().includes(q) ||
+                  item.phone?.toLowerCase().includes(q) ||
+                  item.email?.toLowerCase().includes(q)
+                );
+              });
+
+              if (trashAds.length === 0) {
+                return (
+                  <div className="py-16 text-center space-y-4">
+                    <div className="w-16 h-16 rounded-3xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center border border-slate-200">
+                      <ArchiveRestore className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-800">The Recycle Bin is Empty</h3>
+                      <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                        Any listings deleted from the Advertisement Control, CSV Uploads, or Duplicate Manager will safely accumulate here for quick restoration.
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (filteredTrash.length === 0) {
+                return (
+                  <div className="py-12 text-center text-slate-500 text-xs font-medium">
+                    No deleted listings matched &ldquo;{trashSearchTerm}&rdquo;.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {filteredTrash.map((ad) => {
+                    const isSelected = selectedTrashIds.includes(ad.id);
+                    const formattedDate = ad.deletedAt
+                      ? new Date(ad.deletedAt).toLocaleString("en-ZA", {
+                          dateStyle: "medium",
+                          timeStyle: "short"
+                        })
+                      : "Recently deleted";
+
+                    return (
+                      <div
+                        key={ad.id}
+                        className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                          isSelected
+                            ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-400/30'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3.5">
+                          {/* Selection Checkbox */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTrashIds(prev =>
+                                prev.includes(ad.id)
+                                  ? prev.filter(x => x !== ad.id)
+                                  : [...prev, ad.id]
+                              );
+                            }}
+                            className="mt-1 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-amber-600" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-300" />
+                            )}
+                          </button>
+
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="text-sm font-black text-slate-900 font-display">
+                                {ad.title || "Untitled Business Listing"}
+                              </h4>
+                              {ad.category && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                  {ad.category}
+                                </span>
+                              )}
+                              {ad.province && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                  {ad.city ? `${ad.city}, ` : ''}{ad.province.toUpperCase()}
+                                </span>
+                              )}
+                              {ad.source === "csv" && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                  CSV Import
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium pt-0.5">
+                              {ad.phone && (
+                                <span className="flex items-center gap-1">
+                                  <Phone className="w-3 h-3 text-slate-400" />
+                                  <span>{ad.phone}</span>
+                                </span>
+                              )}
+                              {ad.email && (
+                                <span className="flex items-center gap-1">
+                                  <MessageSquare className="w-3 h-3 text-slate-400" />
+                                  <span className="truncate max-w-[200px]">{ad.email}</span>
+                                </span>
+                              )}
+                              <span className="flex items-center gap-1 text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
+                                <History className="w-3 h-3 text-amber-600" />
+                                <span>Deleted: {formattedDate}</span>
+                              </span>
+                            </div>
+
+                            {ad.description && (
+                              <p className="text-xs text-slate-600 line-clamp-1 pt-1 max-w-2xl italic">
+                                &ldquo;{ad.description}&rdquo;
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreSingleAd(ad.id)}
+                            disabled={isRestoringTrash}
+                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer disabled:opacity-50"
+                            title="Restore this listing to live directory"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Restore</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handlePermanentDeleteSingle(ad.id, ad.title)}
+                            disabled={isPurgingTrash}
+                            className="px-3 py-2 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 font-bold text-xs flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                            title="Permanently remove from storage"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Purge</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Custom URL Slugs & Quick Pages Tab Panel */}
+      {activeTab === "slugs" && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div id="slug-form-card" className="bg-white rounded-3xl p-5 sm:p-8 border border-slate-200 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-20"></div>
+            <div className="relative z-10">
+              <h2 className="text-xl font-bold text-slate-900 font-display mb-1">
+                {editingSlugInForm ? "✏ Edit URL Slug Mapping" : "✚ Create Custom URL Slug / Quick Page Link"}
+              </h2>
+              <p className="text-sm text-slate-500 mb-6">
+                Map arbitrary custom URLs (e.g. <code>searchbiz.co.za/example</code>) to specific cities, towns, or provinces.
+              </p>
+
+              <form onSubmit={handleCreateOrUpdateSlug} className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-200 text-slate-800">
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">URL Slug (slug name only)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. example"
+                    value={slugName}
+                    onChange={(e) => setSlugName(e.target.value)}
+                    disabled={!!editingSlugInForm}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Target Province</label>
+                  <select
+                    value={slugProvince}
+                    onChange={(e) => setSlugProvince(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-900"
+                  >
+                    <option value="gauteng">Gauteng</option>
+                    <option value="western-cape">Western Cape</option>
+                    <option value="kwazulu-natal">KwaZulu-Natal</option>
+                    <option value="eastern-cape">Eastern Cape</option>
+                    <option value="limpopo">Limpopo</option>
+                    <option value="mpumalanga">Mpumalanga</option>
+                    <option value="north-west">North West</option>
+                    <option value="free-state">Free State</option>
+                    <option value="northern-cape">Northern Cape</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Target City or Town</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Soweto"
+                    value={slugCity}
+                    onChange={(e) => setSlugCity(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Shortcut Display Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Best Soweto Services"
+                    value={slugProperName}
+                    onChange={(e) => setSlugProperName(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Target Postal Code (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 4170"
+                    value={slugPostalCode}
+                    onChange={(e) => setSlugPostalCode(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-indigo-500 block mb-1.5 ml-1">Niche/Service Category</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Plumbers, Electricians"
+                    value={slugBusinessType}
+                    onChange={(e) => setSlugBusinessType(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 font-bold"
+                  />
+                </div>
+
+                {/* Map Coordinates Setting Section */}
+                <div className="md:col-span-4 mt-2">
+                  <MapPicker
+                    lat={slugLat}
+                    lng={slugLng}
+                    city={slugCity}
+                    province={slugProvince}
+                    onChange={(latitude, longitude) => {
+                      setSlugLat(latitude);
+                      setSlugLng(longitude);
+                    }}
+                  />
+                </div>
+
+                {/* Auto SEO Generator Action Dock */}
+                <div className="md:col-span-4 bg-indigo-50/50 p-6 rounded-2xl border border-indigo-150 relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-400 rounded-full blur-3xl -mr-16 -mt-16 opacity-10"></div>
+                  <div className="space-y-1 max-w-xl">
+                    <span className="bg-indigo-100 text-indigo-700 text-[9px] font-black tracking-widest uppercase px-2 py-0.5 rounded border border-indigo-200 inline-block">SearchBiz.co.za AI Core</span>
+                    <h4 className="text-sm font-bold text-slate-905">Local AI NLP SEO Suite</h4>
+                    <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+                      Formulate meta tags (keywords, description, regional codes, titles, headings, content intro) specifically targeted for {slugCity || "your city"} using our integrated local AI Core NLP engine.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAutoGenerateSEO}
+                    disabled={isGeneratingSeo}
+                    className="px-6 py-3 bg-indigo-600 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition shadow-md shadow-indigo-600/10 shrink-0 flex items-center gap-2 cursor-pointer"
+                  >
+                    {isGeneratingSeo ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <Sparkles className="w-4 h-4 text-white animate-bounce" />
+                    )}
+                    {isGeneratingSeo ? "Generating..." : "✨ Auto Generate SEO with AI"}
+                  </button>
+                </div>
+
+                {/* Show the Sequential Generation Logs */}
+                {seoGeneratorLog.length > 0 && (
+                  <div className="md:col-span-4 bg-slate-950 text-slate-300 p-5 rounded-2xl border border-slate-800 font-mono text-[10px] space-y-2.5 transition">
+                    <div className="flex items-center justify-between text-[9px] text-slate-500 border-b border-slate-800 pb-2">
+                      <span>AI MODEL SECTOR GENERATOR ACTIVE</span>
+                      <span className="animate-pulse text-emerald-500">● RUNNING</span>
+                    </div>
+                    {seoGeneratorLog.map((log, lidx) => (
+                      <div key={lidx} className="flex items-center gap-1.5 animate-in fade-in slide-in-from-left-2 duration-300">
+                        <span className="text-slate-600">&gt;_</span>
+                        <span className={log.includes("✅") ? "text-emerald-400 font-bold" : ""}>{log}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Interactive Review and Adjustment Panel */}
+                <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-dashed border-slate-200 pt-6">
+                  <div className="md:col-span-2">
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5">REVIEW / CUSTOMIZE SEO SPECIFICATIONS</h4>
+                  </div>
+                  
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-550 block mb-1.5 ml-1">SEO Page Title</label>
+                    <input
+                      type="text"
+                      placeholder="Automatic title tag under 60 characters..."
+                      value={slugSeoTitle}
+                      onChange={(e) => setSlugSeoTitle(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-950 font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-550 block mb-1.5 ml-1">SEO Keywords</label>
+                    <input
+                      type="text"
+                      placeholder="Comma-separated SEO keywords/tags..."
+                      value={slugSeoKeywords}
+                      onChange={(e) => setSlugSeoKeywords(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-950 font-mono text-[11px]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-550 block mb-1.5 ml-1">SEO Geographic Province Code</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. ZA-GP, ZA-KZN..."
+                      value={slugSeoGeoRegion}
+                      onChange={(e) => setSlugSeoGeoRegion(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-950 font-mono text-[11px]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-550 block mb-1.5 ml-1">SEO Main h1 Heading</label>
+                    <input
+                      type="text"
+                      placeholder="Display header for landing page..."
+                      value={slugSeoMainHeading}
+                      onChange={(e) => setSlugSeoMainHeading(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-950 font-bold"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] font-bold uppercase text-slate-550 block mb-1.5 ml-1">SEO Meta Description</label>
+                    <input
+                      type="text"
+                      placeholder="Write rich summary description under 155 characters..."
+                      value={slugSeoDescription}
+                      onChange={(e) => setSlugSeoDescription(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-950 font-medium"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] font-bold uppercase text-slate-550 block mb-1.5 ml-1">Local SEO Introduction Paragraph / Content Snippet</label>
+                    <textarea
+                      rows={2}
+                      placeholder="A short introductory outline greeting landing page visitors..."
+                      value={slugSeoContentSnippet}
+                      onChange={(e) => setSlugSeoContentSnippet(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-950 font-medium leading-relaxed resize-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="md:col-span-4 flex justify-end gap-2 pt-2 border-t border-slate-200/60 font-sans">
+                  {editingSlugInForm && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSlugName("");
+                        setSlugCity("");
+                        setSlugProperName("");
+                        setSlugPostalCode("");
+                        setSlugSeoTitle("");
+                        setSlugSeoDescription("");
+                        setSlugSeoKeywords("");
+                        setSlugSeoGeoRegion("");
+                        setSlugSeoMainHeading("");
+                        setSlugSeoContentSnippet("");
+                        setSlugBusinessType("general trades and services");
+                        setSlugLat(null);
+                        setSlugLng(null);
+                        setEditingSlugInForm(null);
+                      }}
+                      className="px-4 py-2 border border-slate-300 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-100 transition cursor-pointer"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    className="bg-emerald-600 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 transition shadow-sm cursor-pointer"
+                  >
+                    {editingSlugInForm ? "Save Changes" : "Create Mapped Page shortcut"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-5 sm:p-8 border border-slate-200 shadow-sm">
+            <h3 className="font-bold text-slate-900 font-display mb-4 flex items-center gap-2">
+              <Globe className="w-5 h-5 text-emerald-600" /> Currently Configured Page Handlers ({customSlugs.length})
+            </h3>
+            <p className="text-slate-500 text-sm mb-6">
+              These slugs are responsive server-wide, mapped dynamically, and auto-generated inside dynamic XML sitemaps.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {customSlugs.map((s) => (
+                <div key={s.slug} className="flex flex-col p-4 sm:p-5 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 transition w-full overflow-hidden">
+                  <div className="flex justify-between items-start mb-3 gap-2 w-full min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-900 leading-tight break-all">
+                        searchbiz.co.za/{s.slug}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1.5 break-words">
+                        → {s.province} · {s.city} · Code: {s.postalCode || getPostalCodeForTown(s.city)}
+                      </p>
+                    </div>
+                    <div className="flex bg-white border border-slate-200 rounded-lg p-1 shrink-0">
+                      <button
+                        onClick={() => {
+                          setEditingSlugInForm(s.slug);
+                          setSlugName(s.slug);
+                          setSlugProvince(s.province);
+                          setSlugCity(s.city);
+                          setSlugProperName(s.properName || "");
+                          setSlugPostalCode(s.postalCode || "");
+                          setSlugSeoTitle(s.seoTitle || "");
+                          setSlugSeoDescription(s.seoDescription || "");
+                          setSlugSeoKeywords(s.seoKeywords || "");
+                          setSlugSeoGeoRegion(s.seoGeoRegion || "");
+                          setSlugSeoMainHeading(s.seoMainHeading || "");
+                          setSlugSeoContentSnippet(s.seoContentSnippet || "");
+                          setSlugBusinessType(s.businessType || "general trades and services");
+                          setSlugLat(s.lat !== undefined && s.lat !== null ? s.lat : null);
+                          setSlugLng(s.lng !== undefined && s.lng !== null ? s.lng : null);
+                          
+                          // Smooth scroll up to the form so the user sees it's loaded
+                          setTimeout(() => {
+                            const formCard = document.getElementById("slug-form-card");
+                            if (formCard) {
+                              formCard.scrollIntoView({ behavior: "smooth", block: "start" });
+                            }
+                          }, 60);
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded cursor-pointer"
+                        title="Edit mappings"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteSlug(s.slug)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                        title="Delete slug"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium flex items-center justify-between flex-wrap gap-2">
+                    <span>Display Header: <strong>{s.properName || s.city}</strong></span>
+                    {s.businessType && (
+                      <span className="text-[10px] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-bold">
+                        {s.businessType}
+                      </span>
+                    )}
+                  </p>
+                  {s.lat !== undefined && s.lat !== null && s.lng !== undefined && s.lng !== null ? (
+                    <span className="text-[10px] text-emerald-750 font-bold bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-100 mt-2 self-start flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                      📍 Pin Mapped: {parseFloat(s.lat).toFixed(4)}, {parseFloat(s.lng).toFixed(4)}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-amber-600 font-semibold bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-100 mt-2 self-start inline-block">
+                      ⚠️ Map Pointer Not Placed
+                    </span>
+                  )}
+                </div>
+              ))}
+              {customSlugs.length === 0 && !isSlugLoading && (
+                <div className="col-span-full py-12 text-center border-2 border-dashed border-slate-200 rounded-2xl">
+                  <Globe className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-500 font-medium">No custom URL slugs configured</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Premium Paid Submissions Verification Review Panel */}
+      {activeTab === "premium" && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-xl font-bold font-display text-slate-900">🛡 Premium Business verification logs</h3>
+                <p className="text-sm text-slate-500 mt-1">Review legal documentation, CIPC/SARS proofs, and approve monthly billing mandates.</p>
+              </div>
+              <button onClick={loadPremiumApps} className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-800 transition shadow-sm">
+                ↻ Refresh submissions
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {premiumApps.map((app) => {
+                const planFormatted = (app.plan || "ESSENTIAL").toUpperCase();
+                let priceText = "R199.99 / Month";
+                if (planFormatted === "FREE") {
+                  priceText = "R0.00 / Month";
+                } else if (planFormatted === "PREMIUM" || planFormatted === "PRO" || planFormatted === "PREMIUM_TIER") {
+                  priceText = "R9,999.00 / Month";
+                } else if (planFormatted === "ENTERPRISE_BASIC") {
+                  priceText = "R499,999.00 / Month";
+                } else if (planFormatted === "ENTERPRISE_PREMIUM") {
+                  priceText = "R999,999.00 / Month";
+                } else if (planFormatted === "ELITE_BASIC") {
+                  priceText = "R25,000,000.00 / Month";
+                } else if (planFormatted === "ELITE_PREMIUM") {
+                  priceText = "R50,000,000.00 / Month";
+                } else if (planFormatted === "ELITE_ENTERPRISE") {
+                  priceText = "R100,000,000.00 / Month";
+                } else if (planFormatted === "ESSENTIAL") {
+                  let priceVal = 199.99;
+                  const addons: string[] = [];
+                  if (app.l2Extra) {
+                    priceVal += 199.00;
+                    addons.push("Hosting/Email/Web (+R199)");
+                  }
+                  if (app.l2Listings) {
+                    priceVal += 199.00;
+                    addons.push("Extra Listings (+R199)");
+                  }
+                  priceText = `R${priceVal.toFixed(2)} / Month`;
+                  if (app.l2Domain) {
+                    addons.push(".co.za Domain (+R99/year)");
+                    priceText += " + R99/yr";
+                  }
+                  if (addons.length > 0) {
+                    priceText += ` (${addons.join(', ')})`;
+                  }
+                }
+
+                return (
+                  <div key={app.id} className="border border-slate-200 rounded-2xl p-6 bg-slate-50">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200/60 pb-4 mb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-slate-900">{app.companyName}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-800 border border-indigo-200`}>
+                            {planFormatted}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                            app.status === "APPROVED" ? "bg-emerald-100 text-emerald-800" :
+                            app.status === "REJECTED" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {app.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 font-medium mt-1">
+                          Applicant: <strong>{app.fullName || "Not Specified"}</strong> • WhatsApp: <strong>{app.whatsapp || "N/A"}</strong> • Phone: <strong>{app.phone || "N/A"}</strong>
+                        </p>
+                        <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                          User Email: <strong>{app.email}</strong> • ID Number: <strong>{app.idNumber || "N/A"}</strong> • Submitted: {new Date(app.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {app.status === "PENDING" && (
+                          <>
+                            <button
+                              onClick={() => handleRejectPremium(app.id)}
+                              className="px-3.5 py-1.5 border border-slate-300 hover:border-rose-400 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 text-xs font-bold rounded-lg transition"
+                            >
+                              Decline Application
+                            </button>
+                            <button
+                              onClick={() => handleApprovePremium(app.id)}
+                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition shadow-sm"
+                            >
+                              Approve & Update Plan
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                      <div className="bg-white p-3 rounded-xl border border-slate-200/80 flex items-center justify-between shadow-sm text-slate-700">
+                        <div className="truncate">
+                          <p className="font-bold text-slate-500 text-[10px] uppercase">CIPC Registration</p>
+                          <p className="text-[11px] text-slate-850 font-semibold mt-0.5 truncate">
+                            {typeof app.cipcDoc === 'string' && app.cipcDoc.startsWith('data:') ? <a href={app.cipcDoc} target="_blank" className="text-emerald-600 underline">View CIPC</a> : (app.cipcDoc?.name || app.cipcDoc || "Attached")}
+                          </p>
+                        </div>
+                        <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded ml-2 shrink-0">Attached</span>
+                      </div>
+
+                      <div className="bg-white p-3 rounded-xl border border-slate-200/80 flex items-center justify-between shadow-sm text-slate-700">
+                        <div className="truncate">
+                          <p className="font-bold text-slate-500 text-[10px] uppercase">SARS Letter Copy</p>
+                          <p className="text-[11px] text-slate-850 font-semibold mt-0.5 truncate">
+                            {typeof app.sarsDoc === 'string' && app.sarsDoc.startsWith('data:') ? <a href={app.sarsDoc} target="_blank" className="text-emerald-600 underline">View SARS</a> : (app.sarsDoc?.name || app.sarsDoc || "Attached")}
+                          </p>
+                        </div>
+                        <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded ml-2 shrink-0">Attached</span>
+                      </div>
+
+                      <div className="bg-white p-3 rounded-xl border border-slate-200/80 flex items-center justify-between shadow-sm text-slate-700">
+                        <div className="truncate">
+                          <p className="font-bold text-slate-500 text-[10px] uppercase">Bank Verification</p>
+                          <p className="text-[11px] text-slate-850 font-semibold mt-0.5 truncate">
+                            {typeof app.bankDoc === 'string' && app.bankDoc.startsWith('data:') ? <a href={app.bankDoc} target="_blank" className="text-emerald-600 underline">View Bank</a> : (app.bankDoc?.name || app.bankDoc || "Attached")}
+                          </p>
+                        </div>
+                        <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded ml-2 shrink-0">Attached</span>
+                      </div>
+
+                      <div className="bg-white p-3 rounded-xl border border-slate-200/80 flex items-center justify-between shadow-sm text-slate-700">
+                        <div className="truncate">
+                          <p className="font-bold text-slate-500 text-[10px] uppercase">Owner Photo ID</p>
+                          <p className="text-[11px] text-slate-850 font-semibold mt-0.5 truncate">
+                            {typeof app.idDoc === 'string' && app.idDoc.startsWith('data:') ? <a href={app.idDoc} target="_blank" className="text-emerald-600 underline">View ID</a> : (app.idDoc?.name || app.idDoc || "Attached")}
+                          </p>
+                        </div>
+                        <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded ml-2 shrink-0">Attached</span>
+                      </div>
+                    </div>
+                    {app.signatureUrl && (
+                      <div className="mt-4 pt-4 border-t border-slate-200/60">
+                        <p className="font-bold text-slate-500 text-[10px] uppercase mb-2">Digital Signature</p>
+                        <img src={app.signatureUrl} alt="Signature" className="h-16 object-contain" />
+                      </div>
+                    )}
+
+                    <div className="mt-4 bg-slate-100 border border-slate-200 rounded-xl p-4 text-xs space-y-2">
+                      <p className="font-bold text-slate-500 text-[10px] uppercase">Debit Order Banking Details</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-1.5">
+                        <div>
+                          <span className="text-slate-400 block font-semibold text-[10px]">BANK NAME</span>
+                          <span className="font-bold text-slate-800">{app.bankName || "Not Specified"}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block font-semibold text-[10px]">ACCOUNT HOLDER</span>
+                          <span className="font-bold text-slate-800">{app.accountHolder || "Not Specified"}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block font-semibold text-[10px]">ACCOUNT TYPE</span>
+                          <span className="font-bold text-slate-800">{app.accountType || "Not Specified"}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block font-semibold text-[10px]">ACCOUNT NUMBER</span>
+                          <span className="font-bold text-slate-800">{app.bankAccount || "Not Specified"}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block font-semibold text-[10px]">BRANCH CODE</span>
+                          <span className="font-bold text-slate-800">{app.branchCode || "Not Specified"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 bg-emerald-50/60 p-3 rounded-xl border border-emerald-100 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-emerald-950">Debit Order mandate amount authorized</span>
+                      <span className="text-xs font-bold text-emerald-700">{priceText} / Month (ZAR)</span>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {premiumApps.length === 0 && !isAppLoading && (
+                <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-slate-50">
+                  <ShieldAlert className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-500 font-medium">No premium registration applications found</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Upload Center & Unclaimed Business Claims Inbox */}
+      {activeTab === "csv_uploads" && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          
+          {/* Section 1: CSV Scraper & AI Sorting Workspace */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-20"></div>
+            
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-100 pb-6">
+              <div>
+                <h3 className="text-xl font-bold font-display text-slate-900 flex items-center gap-2">
+                  🗂 CSV Business Ingestion & AI Sorting
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  Upload scraped directory CSV lists. AI will analyze, geolocate, and auto-categorize each business before committing.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2.5">
+                <button
+                  onClick={() => {
+                    setDeleteScope("csv");
+                    setDeletePasswordInput("");
+                    setDeletePasswordError("");
+                    setIsDeleteModalOpen(true);
+                  }}
+                  className="px-4 py-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  title="Purge existing scraped or CSV imported listings"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Purge / Wipe CSV Ads
+                </button>
+                <button
+                  onClick={handleAddCsvRow}
+                  className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5 text-slate-500" /> Add Row Manually
+                </button>
+                {csvFileParsed.length > 0 && (
+                  <button
+                    onClick={() => {
+                      if (confirm("Are you sure you want to clear the current parsed workspace? All uncommitted edits will be lost.")) {
+                        setCsvFileParsed([]);
+                      }
+                    }}
+                    className="px-4 py-2 border border-rose-100 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5"
+                  >
+                    Clear Workspace
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Ingestion Config Panels */}
+            <div className="relative z-10 mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Target / Fallback Province</label>
+                <select
+                  value={csvDefaultProvince}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCsvDefaultProvince(val);
+                    if (val !== "all" && csvFileParsed.length > 0) {
+                      setCsvFileParsed(prev => prev.map(row => ({
+                        ...row,
+                        province: row.rawCsvProvince ? row.province : val
+                      })));
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 font-bold cursor-pointer"
+                >
+                  <option value="all">🌍 All Provinces (Auto-Sort from CSV)</option>
+                  <option value="gauteng">Gauteng</option>
+                  <option value="kwazulu-natal">KwaZulu-Natal</option>
+                  <option value="western-cape">Western Cape</option>
+                  <option value="eastern-cape">Eastern Cape</option>
+                  <option value="free-state">Free State</option>
+                  <option value="limpopo">Limpopo</option>
+                  <option value="mpumalanga">Mpumalanga</option>
+                  <option value="north-west">North West</option>
+                  <option value="northern-cape">Northern Cape</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Choose Category (Applied to CSV)</label>
+                <select
+                  value={csvDefaultCategory}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCsvDefaultCategory(val);
+                    if (val && val !== "Other" && csvFileParsed.length > 0) {
+                      const codeMatch = val.match(/^(\d+\.\d+)\s+/);
+                      const extractedCode = codeMatch ? codeMatch[1] : "";
+                      setCsvFileParsed(prev => prev.map(row => ({
+                        ...row,
+                        category: val,
+                        ...(extractedCode ? { categoryCode: extractedCode } : {})
+                      })));
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 font-bold cursor-pointer"
+                >
+                  <option value="Other" className="font-bold text-emerald-700">Auto-Detect from CSV / Choose Category...</option>
+                  {CATEGORIES_STRUCTURED.map((group) => (
+                    <optgroup key={group.name} label={group.name} className="font-bold text-slate-900 bg-white">
+                      <option value={group.name} className="font-extrabold text-emerald-900 bg-emerald-50">
+                        📂 ALL {group.name}
+                      </option>
+                      {group.subcategories.map((sub) => (
+                        <option key={sub} value={sub} className="font-normal text-slate-700">
+                          {sub}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              {/* CSV Parsing Target File Box */}
+              <div className="md:col-span-2">
+                <label className="text-[10px] font-bold uppercase text-slate-550 block mb-1.5 ml-1">Select CSV Directory File(s)</label>
+                <div className="relative flex items-center">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    multiple
+                    onChange={async (e) => {
+                      const files = e.target.files ? Array.from(e.target.files) : [];
+                      if (files.length === 0) return;
+                      setCsvUploadLoading(true);
+                      try {
+                        const normTitle = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const normPhone = (s: string) => (s || "").replace(/[^0-9]/g, '');
+                        const normAddr = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                        const seenCsvKeys = new Set<string>();
+                        const existingDbKeys = new Set<string>();
+                        ads.forEach(ad => {
+                          if (ad.isPremium || ad.isSponsor || (ad.verified && !ad.isLockedLevel1)) return;
+                          const nt = normTitle(ad.title);
+                          const np = normPhone(ad.phone || ad.telephone || ad.whatsapp);
+                          const na = normAddr(ad.address || `${ad.suburb || ''} ${ad.location || ''}`);
+                          if (nt && np && na) {
+                            existingDbKeys.add(`${nt}|${np}|${na}`);
+                          }
+                        });
+
+                        const parsedRows: any[] = [];
+                        let skippedNoPhone = 0;
+                        let skippedDuplicates = 0;
+
+                        for (const file of files) {
+                          const text = await file.text();
+                          if (!text) continue;
+                          const rawRows = parseCsvText(text);
+                          if (rawRows.length < 2) continue;
+
+                          const headers = rawRows[0].map(h => (h || "").trim().toLowerCase());
+                          const provHeaderIdx = headers.findIndex(h => h === "province" || h === "state" || h === "region");
+
+                          for (let i = 1; i < rawRows.length; i++) {
+                            const values = rawRows[i];
+                            if (!values || values.length === 0 || values.every(v => !v)) continue;
+                            const rec = parseCsvRowToRecord(headers, values, csvDefaultCategory, csvDefaultProvince, file.name);
+                            const primaryPhone = (rec.phone || rec.telephone || rec.whatsapp || "").replace(/[\s\-\(\)\.]/g, '');
+                            const hasAddress = Boolean((rec.address || rec.suburb || rec.city || "").trim());
+                            if (!rec.title || !hasAddress || !primaryPhone || primaryPhone === "·" || primaryPhone === "" || primaryPhone.length < 7) {
+                              skippedNoPhone++;
+                              continue;
+                            }
+
+                            const nT = normTitle(rec.title);
+                            const nP = normPhone(primaryPhone);
+                            const nA = normAddr(rec.address || `${rec.suburb || ''} ${rec.city || ''}`);
+
+                            if (nT && nP && nA) {
+                              const tripletKey = `${nT}|${nP}|${nA}`;
+                              if (existingDbKeys.has(tripletKey) || seenCsvKeys.has(tripletKey)) {
+                                skippedDuplicates++;
+                                continue;
+                              }
+                              seenCsvKeys.add(tripletKey);
+                            }
+
+                            parsedRows.push({
+                              ...rec,
+                              rawCsvProvince: provHeaderIdx >= 0 ? (values[provHeaderIdx] || "").trim() : ""
+                            });
+                          }
+                        }
+
+                        setCsvPreviewLimit(50);
+                        setCsvFileParsed(parsedRows);
+
+                        const provBreakdown: Record<string, number> = {};
+                        for (const r of parsedRows) {
+                          const pKey = r.province || "gauteng";
+                          provBreakdown[pKey] = (provBreakdown[pKey] || 0) + 1;
+                        }
+                        const provSummaryStr = Object.entries(provBreakdown)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([k, v]) => `${k.replace(/-/g, ' ').toUpperCase()}: ${v.toLocaleString()}`)
+                          .join(" | ");
+
+                        const messages = [];
+                        if (parsedRows.length > 0) {
+                          messages.push(`Loaded ${parsedRows.length.toLocaleString()} valid business records across ${Object.keys(provBreakdown).length} province(s) (${provSummaryStr}).`);
+                        } else {
+                          messages.push(`No new records loaded.`);
+                        }
+                        if (skippedDuplicates > 0) {
+                          messages.push(`${skippedDuplicates.toLocaleString()} exact duplicate Free Level 1 row(s) skipped.`);
+                        }
+                        if (skippedNoPhone > 0) {
+                          messages.push(`${skippedNoPhone.toLocaleString()} row(s) missing minimum requirements skipped.`);
+                        }
+                        alert(messages.join(" "));
+                      } finally {
+                        setCsvUploadLoading(false);
+                        e.target.value = "";
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                  <div className="w-full bg-slate-50 border-2 border-dashed border-slate-250 rounded-xl px-4 py-2 text-xs font-bold text-slate-650 flex items-center justify-center gap-2 hover:bg-slate-100 hover:border-emerald-500 transition-colors">
+                     📁 Click or Drag to Parse Directory CSV (Auto-sorts into All 9 Provinces, Towns, Suburbs &Chosen Category)
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CSV AI Sort & Action Trigger Deck */}
+            {csvFileParsed.length > 0 && (() => {
+              const provCounts: Record<string, number> = {};
+              for (let i = 0; i < csvFileParsed.length; i++) {
+                const p = (csvFileParsed[i].province || (csvDefaultProvince !== "all" ? csvDefaultProvince : "gauteng")).toLowerCase().trim();
+                provCounts[p] = (provCounts[p] || 0) + 1;
+              }
+              return (
+                <div className="relative z-10 mt-6 bg-slate-50 p-5 rounded-2xl border border-slate-200 flex flex-col gap-4">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-emerald-500 p-2.5 rounded-xl text-white shadow-md shadow-emerald-500/10">
+                        ✨
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          Ready to Upload: {csvFileParsed.length.toLocaleString()} Listing(s) Auto-Sorted into {Object.keys(provCounts).length} Province(s)
+                        </h4>
+                        <p className="text-xs text-slate-500 font-medium">
+                          Category: <span className="font-bold text-emerald-700">{csvDefaultCategory !== "Other" ? csvDefaultCategory : (csvFileParsed[0]?.category || "Auto-Detected from CSV")}</span> • Click the green Upload button below to publish all listings into their provinces.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2.5 w-full md:w-auto shrink-0">
+                      <button
+                        onClick={async () => {
+                          if (csvFileParsed.length === 0) return;
+                          setCsvUploadLoading(true);
+                          try {
+                            const res = await fetch("/api/admin/csv-ai-sort", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                businesses: csvFileParsed,
+                                overrideProvince: csvDefaultProvince,
+                                overrideCategory: csvDefaultCategory
+                              })
+                            });
+                            if (res.ok) {
+                              const result = await res.json();
+                              if (Array.isArray(result.businesses)) {
+                                setCsvFileParsed(result.businesses);
+                                alert("Successfully auto-sorted and verified provinces and categories for all rows!");
+                              } else {
+                                alert("Sorting complete, but the server returned unrecognized formats.");
+                              }
+                            } else {
+                              const errData = await res.json();
+                              alert("Error from sorter: " + (errData.error || "Unknown"));
+                            }
+                          } catch (err) {
+                            alert("Error connecting with sorting server.");
+                          } finally {
+                            setCsvUploadLoading(false);
+                          }
+                        }}
+                        disabled={csvUploadLoading}
+                        className="flex-1 md:flex-none px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
+                      >
+                        {csvUploadLoading ? (
+                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : "🪄 Verify Province & Category Sort"}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (csvFileParsed.length === 0) return;
+                          
+                          const normTitle = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                          const normPhone = (s: string) => (s || "").replace(/[^0-9]/g, '');
+                          const normAddr = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                          const seenCommitKeys = new Set<string>();
+                          let commitDuplicates = 0;
+
+                          const validWithPhone = csvFileParsed.filter(item => {
+                            const primaryPhone = (item.phone || item.telephone || item.whatsapp || "").replace(/[\s\-\(\)\.]/g, '');
+                            const hasAddr = Boolean((item.address || item.suburb || item.city || "").trim());
+                            if (!item.title || !hasAddr || !primaryPhone || primaryPhone === "·" || primaryPhone === "" || primaryPhone.length < 7) {
+                              return false;
+                            }
+                            const nt = normTitle(item.title);
+                            const np = normPhone(primaryPhone);
+                            const na = normAddr(item.address || `${item.suburb || ''} ${item.city || ''}`);
+                            if (nt && np && na) {
+                              const key = `${nt}|${np}|${na}`;
+                              if (seenCommitKeys.has(key)) {
+                                commitDuplicates++;
+                                return false;
+                              }
+                              seenCommitKeys.add(key);
+                            }
+                            return true;
+                          });
+
+                          if (validWithPhone.length === 0) {
+                            alert(`Cannot publish: No unique listings meeting minimum requirements (Business Name, Address, and at least 1 Phone/Telephone/WhatsApp number) found.`);
+                            return;
+                          }
+
+                          setCsvUploadLoading(true);
+                          try {
+                            const chunkSize = 2500;
+                            let totalAdded = 0;
+                            let totalUpdated = 0;
+                            const chosenCat = (csvDefaultCategory && csvDefaultCategory !== "Other" && csvDefaultCategory !== "auto") ? csvDefaultCategory : "";
+                            const chosenCodeMatch = chosenCat ? chosenCat.match(/^(\d+\.\d+)\s+/) : null;
+                            const chosenCode = chosenCodeMatch ? chosenCodeMatch[1] : "";
+
+                            const totalBatches = Math.ceil(validWithPhone.length / chunkSize);
+                            for (let c = 0; c < validWithPhone.length; c += chunkSize) {
+                              const currentBatch = Math.floor(c / chunkSize) + 1;
+                              const currentCount = Math.min(c + chunkSize, validWithPhone.length);
+                              setCsvUploadProgressText(`Uploading batch ${currentBatch} of ${totalBatches} (${currentCount.toLocaleString()} / ${validWithPhone.length.toLocaleString()} ads)...`);
+
+                              const batchSlice = validWithPhone.slice(c, c + chunkSize).map((item) => {
+                                let prov = (item.province && item.province !== "all") ? item.province.toLowerCase().trim() : "";
+                                if (!prov) {
+                                  if (csvDefaultProvince !== "all") {
+                                    prov = csvDefaultProvince.toLowerCase().trim();
+                                  } else {
+                                    const loc = detectLocationFromPhoneAndText(
+                                      item.phone || item.telephone || item.whatsapp || "",
+                                      `${item.title || ""} ${item.address || ""} ${item.suburb || ""} ${item.city || ""} ${item.postalCode || ""}`,
+                                      "gauteng"
+                                    );
+                                    prov = (loc.province || "gauteng").toLowerCase().trim();
+                                  }
+                                }
+                                const addr = item.address || "";
+                                const exactLoc = resolveExactSouthAfricanLocation({
+                                  province: prov,
+                                  city: item.city || item.town,
+                                  town: item.city || item.town,
+                                  suburb: item.suburb,
+                                  postalCode: item.postalCode,
+                                  address: addr,
+                                  title: item.title
+                                });
+
+                                const rawServices = item.servicesOffered || "";
+                                const cat = chosenCat || item.category || "General Business Services";
+                                const catCode = chosenCode || item.categoryCode || "";
+                                const primaryPhone = item.phone || item.telephone || item.whatsapp || "";
+                                const finalSuburb = item.suburb || exactLoc.suburb || "";
+                                const finalCity = exactLoc.city || item.city || "Johannesburg";
+                                const finalPostalCode = item.postalCode || exactLoc.postalCode || "";
+
+                                return {
+                                  title: item.title || "Unnamed Business",
+                                  category: cat,
+                                  categoryCode: catCode,
+                                  province: exactLoc.provinceSlug || prov,
+                                  city: finalCity,
+                                  town: finalCity,
+                                  location: finalCity.toLowerCase(),
+                                  suburb: finalSuburb,
+                                  postalCode: finalPostalCode,
+                                  description: item.description || (rawServices ? `Services offered: ${rawServices}` : `${cat} business in ${finalSuburb ? finalSuburb + ', ' : ''}${finalCity}.`),
+                                  tradingHours: item.tradingHours || "",
+                                  servicesOffered: rawServices || cat,
+                                  address: addr || [finalSuburb, finalCity, finalPostalCode].filter(Boolean).join(", "),
+                                  phone: primaryPhone,
+                                  telephone: item.telephone || primaryPhone,
+                                  whatsapp: item.whatsapp || primaryPhone,
+                                  email: item.email || "",
+                                  website: item.website || "",
+                                  socialLinks: item.socialLinks || "",
+                                  twitter: item.twitter || "",
+                                  tiktok: item.tiktok || "",
+                                  facebook: item.facebook || "",
+                                  instagram: item.instagram || "",
+                                  youtube: item.youtube || "",
+                                  linkedin: item.linkedin || "",
+                                  isApproved: true,
+                                  status: "active",
+                                };
+                              });
+
+                              const res = await fetch("/api/bot/ad/bulk", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ items: batchSlice })
+                              });
+                              if (res.ok) {
+                                const rData = await res.json();
+                                totalAdded += Number(rData.addedCount || 0);
+                                totalUpdated += Number(rData.updatedCount || 0);
+                              }
+                              // Non-blocking yield to keep browser completely responsive
+                              await new Promise(resolve => setTimeout(resolve, 20));
+                            }
+
+                            await refreshAdminServerAds();
+                            await fetchDirectoryStats(true);
+                            if (typeof window !== "undefined") {
+                              window.dispatchEvent(new CustomEvent("searchbiz_ads_updated"));
+                            }
+                            setCsvFileParsed([]);
+                            setCsvUploadProgressText("");
+                            alert(`Success! Uploaded and sorted ${validWithPhone.length.toLocaleString()} listings (${totalAdded.toLocaleString()} newly added, ${totalUpdated.toLocaleString()} updated) across their respected South African provinces, towns, suburbs, postal codes & category!`);
+                          } catch (err) {
+                            alert("Error writing committed rows to directories.");
+                          } finally {
+                            setCsvUploadLoading(false);
+                            setCsvUploadProgressText("");
+                          }
+                        }}
+                        disabled={csvUploadLoading}
+                        className="flex-1 md:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-60"
+                      >
+                        {csvUploadLoading ? (csvUploadProgressText || "Uploading & Sorting Provinces...") : `🚀 Upload & Sort into Provinces (${csvFileParsed.length.toLocaleString()} Ads)`}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Province Sorting Breakdown Pills */}
+                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-200/80">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Sorted Provinces Breakdown:</span>
+                    {Object.entries(provCounts).sort((a, b) => b[1] - a[1]).map(([provSlug, cnt]) => (
+                      <span key={provSlug} className="px-2.5 py-1 rounded-lg bg-white border border-emerald-200 text-emerald-900 text-[11px] font-bold capitalize shadow-2xs">
+                        {provSlug.replace(/-/g, ' ')}: <span className="text-emerald-600 font-extrabold">{cnt.toLocaleString()}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Live Interactive Spreadsheet Editor (Paginated to prevent mobile browser freeze on 10k+ row CSVs) */}
+            {csvFileParsed.length > 0 && (
+              <div className="mt-6 border border-slate-200 rounded-2xl overflow-hidden bg-slate-50 relative w-full max-w-full">
+                <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-700">
+                  <span>Interactive Listing Spreadsheet Preview (Showing {Math.min(csvPreviewLimit, csvFileParsed.length).toLocaleString()} of {csvFileParsed.length.toLocaleString()} rows)</span>
+                  <div className="flex items-center gap-2">
+                    {csvFileParsed.length > csvPreviewLimit && (
+                      <button
+                        type="button"
+                        onClick={() => setCsvPreviewLimit(prev => prev + 100)}
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition cursor-pointer"
+                      >
+                        Show Next 100 Rows
+                      </button>
+                    )}
+                    <span className="text-[10px] text-slate-500 font-mono">Total Rows: {csvFileParsed.length.toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto w-full max-w-full block max-h-[450px]">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-white border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-3 px-4 w-12 text-center">#</th>
+                        <th className="py-3 px-4 min-w-[180px]">Company Name / Title</th>
+                        <th className="py-3 px-4 min-w-[150px]">Street Address</th>
+                        <th className="py-3 px-4 min-w-[120px]">Phone Number</th>
+                        <th className="py-3 px-4 min-w-[130px]">Category</th>
+                        <th className="py-3 px-4 min-w-[120px]">Province</th>
+                        <th className="py-3 px-4 min-w-[130px]">Email Address</th>
+                        <th className="py-3 px-4 min-w-[200px]">Services / Description Summary</th>
+                        <th className="py-3 px-4 w-16 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-150">
+                      {csvFileParsed.slice(0, csvPreviewLimit).map((item, idx) => (
+                        <tr key={idx} className="bg-white hover:bg-slate-50 transition-colors">
+                          <td className="py-2.5 px-4 font-mono text-slate-400 text-center font-bold">{idx + 1}</td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              value={item.title || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, title: val } : row));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-900 font-bold focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              value={item.address || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, address: val } : row));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              value={item.phone || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, phone: val } : row));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 font-mono focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              value={item.category || "Other"}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, category: val } : row));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 font-bold focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <select
+                              value={item.province || "gauteng"}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, province: val } : row));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 font-medium focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            >
+                              <option value="gauteng">Gauteng</option>
+                              <option value="kwazulu-natal">KwaZulu-Natal</option>
+                              <option value="western-cape">Western Cape</option>
+                              <option value="eastern-cape">Eastern Cape</option>
+                              <option value="free-state">Free State</option>
+                              <option value="limpopo">Limpopo</option>
+                              <option value="mpumalanga">Mpumalanga</option>
+                              <option value="north-west">North West</option>
+                              <option value="northern-cape">Northern Cape</option>
+                            </select>
+                          </td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              value={item.email || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, email: val } : row));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              value={item.servicesOffered || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, servicesOffered: val } : row));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="py-2.5 px-4 text-center">
+                            <button
+                              onClick={() => {
+                                setCsvFileParsed(prev => prev.filter((_, i) => i !== idx));
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                              title="Delete row"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {csvFileParsed.length === 0 && (
+              <div className="mt-8 py-12 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-slate-50">
+                <Database className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-500 font-bold">Your Ingestion spreadsheet is empty</p>
+                <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
+                  Provide a valid structured Google Maps scraped CSV or add custom unverified listings manually.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: Claim Verification & Ad Purge Inbox */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 pb-4 border-b border-slate-100 gap-4">
+              <div>
+                <h3 className="text-xl font-bold font-display text-slate-900 flex items-center gap-2">
+                   🏢 Business Claim & Removal Requests
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  Authenticate proofs of ownership submitted by actual business owners to either unlock premium features or wipe incorrect listings.
+                </p>
+              </div>
+              <button
+                onClick={loadClaimRequests}
+                disabled={isClaimsLoading}
+                className="px-4 py-2 border border-slate-250 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-1.5 self-start"
+              >
+                {isClaimsLoading ? (
+                  <div className="w-3.5 h-3.5 border-2 border-slate-800 border-t-transparent rounded-full animate-spin"></div>
+                ) : "↻ Refresh Claims"}
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {claimRequests.map((req) => {
+                const isRemoval = req.intention === "remove";
+                return (
+                  <div
+                    key={req.id}
+                    className={`border rounded-2xl p-6 transition-all ${
+                      req.status === "APPROVED" ? "border-emerald-200 bg-emerald-50/20" :
+                      req.status === "REJECTED" ? "border-rose-100 bg-rose-50/10" : "border-slate-200 bg-slate-50/50"
+                    }`}
+                  >
+                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 pb-4 mb-4 border-b border-slate-200/60">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-bold text-slate-900">{req.adTitle || "Unspecified Ad"}</span>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                            isRemoval ? "bg-rose-100 text-rose-800 border border-rose-200" :
+                            req.intention === "premium" ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-blue-100 text-blue-800 border border-blue-200"
+                          }`}>
+                            {isRemoval ? "❌ Removal Request" : req.intention === "premium" ? "⭐ Claim & Upgrade (Premium)" : "🤝 Claim Listing (Free)"}
+                          </span>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                            req.status === "APPROVED" ? "bg-emerald-100 text-emerald-800 border border-emerald-200" :
+                            req.status === "REJECTED" ? "bg-rose-100 text-rose-800 border border-rose-200" : "bg-amber-100 text-amber-800 border border-amber-200"
+                          }`}>
+                            {req.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 font-semibold mt-1">
+                          Applicant: <strong>{req.senderName || "Unverified Owner"}</strong> • Email: <strong>{req.senderEmail}</strong> • ID: <span className="font-mono">{req.id}</span>
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">
+                           📍 Location: {req.adCity || "South Africa"} · {req.adProvince} | Listing ID: {req.adId}
+                        </p>
+                      </div>
+
+                      {req.status === "PENDING" && (
+                        <div className="flex items-center gap-2 self-start shrink-0">
+                          <button
+                            onClick={async () => {
+                              const claimId = req.id;
+                              if (!confirm("Decline this claim/removal application? This will reject the verification records.")) return;
+                              try {
+                                const updatedClaims = claimRequests.map(c => c.id === claimId ? { ...c, status: "REJECTED" } : c);
+                                const res = await fetch("/api/storage", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ claimRequests: updatedClaims })
+                                });
+                                if (res.ok) {
+                                  setClaimRequests(updatedClaims);
+                                  alert("Claim rejected.");
+                                }
+                              } catch (e) {
+                                alert("Failed to update status.");
+                              }
+                            }}
+                            className="px-3.5 py-1.5 border border-slate-350 hover:border-rose-400 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 text-xs font-bold rounded-lg transition"
+                          >
+                            Decline Request
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const claimId = req.id;
+                              const targetClaim = claimRequests.find(c => c.id === claimId);
+                              if (!targetClaim) return;
+                              const text = targetClaim.intention === "remove" ? "permanently purge/remove this advertisement" : "approve this claim, bind the listing, and activate verification badges";
+                              if (!confirm(`Are you sure you want to ${text}?`)) return;
+
+                              try {
+                                const updatedClaims = claimRequests.map(c => c.id === claimId ? { ...c, status: "APPROVED" } : c);
+                                let updatedAds = [...ads];
+                                if (targetClaim.intention === "remove") {
+                                  updatedAds = updatedAds.filter(a => a.id !== targetClaim.adId);
+                                } else {
+                                  updatedAds = updatedAds.map(a => {
+                                    if (a.id === targetClaim.adId) {
+                                      return {
+                                        ...a,
+                                        userId: targetClaim.senderEmail,
+                                        isClaimed: true,
+                                        verified: true,
+                                        isPremium: targetClaim.intention === "premium",
+                                        isSponsor: false,
+                                        email: targetClaim.senderEmail
+                                      };
+                                    }
+                                    return a;
+                                  });
+                                }
+
+                                const res = await fetch("/api/storage", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    claimRequests: updatedClaims,
+                                    ads: updatedAds
+                                  })
+                                });
+
+                                if (res.ok) {
+                                  setClaimRequests(updatedClaims);
+                                  setAds(updatedAds);
+                                  saveStoredAds(updatedAds);
+                                  alert("Request approved and synchronized in real-time!");
+                                } else {
+                                  alert("Failed to sync status with directories database.");
+                                }
+                              } catch (e) {
+                                alert("Error connecting with directory server.");
+                              }
+                            }}
+                            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition shadow-sm"
+                          >
+                            Approve & Sync Live
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 text-xs font-medium">
+                      {[
+                        { title: "National ID / Passport", status: req.documents?.idDoc },
+                        { title: "CIPC Co. Certificate", status: req.documents?.cipc },
+                        { title: "SARS Certificate Copy", status: req.documents?.sars },
+                        { title: "Proof of Business Address", status: req.documents?.proofOfAddress },
+                        { title: "Business Bank Statement", status: req.documents?.bankStatement }
+                      ].map((doc, dIdx) => (
+                        <div key={dIdx} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase leading-tight">{doc.title}</span>
+                          <span className="text-[11px] text-emerald-700 font-bold mt-1.5 flex items-center gap-1">
+                             🟢 Attached / Encrypted
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {req.message && (
+                      <div className="mt-4 bg-slate-100 border border-slate-200 rounded-xl p-4 text-xs font-medium text-slate-700">
+                        <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Owner Message / Proof Statement</p>
+                        <p className="leading-relaxed">&ldquo;{req.message}&rdquo;</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {claimRequests.length === 0 && !isClaimsLoading && (
+                <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-slate-50">
+                  <ShieldAlert className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-500 font-bold">No claim or removal requests found</p>
+                  <p className="text-xs text-slate-400 mt-1">Claim verification logs will list here when business owners submit claims.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'overview' && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center hover:border-emerald-200 transition-colors">
+              <div className="bg-emerald-50 p-4 rounded-xl mr-5 text-emerald-600">
+                <Users className="w-8 h-8" />
+              </div>
+              <div className="flex flex-col">
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1">Total Users</p>
+                <div className="flex items-baseline space-x-2">
+                   <p className="text-3xl font-bold text-slate-900">{users.length}</p>
+                   <span className="text-xs text-emerald-600 font-bold">+{usersTodayCount} today</span>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center hover:border-indigo-200 transition-colors">
+              <div className="bg-indigo-50 p-4 rounded-xl mr-5 text-indigo-600">
+                <Database className="w-8 h-8" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1">Active Ads</p>
+                <p className="text-3xl font-bold text-slate-900">{(adminStats?.total ?? ads.length).toLocaleString()}</p>
+                {adminStats && (
+                  <p className="text-[10px] font-bold text-slate-500 mt-0.5">
+                    <span className="text-emerald-600">{adminStats.approved.toLocaleString()} Approved</span> •{" "}
+                    <span className="text-amber-600">{adminStats.pendingApproval.toLocaleString()} Pending</span>
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center hover:border-amber-200 transition-colors">
+              <div className="bg-amber-50 p-4 rounded-xl mr-5 text-amber-500">
+                <ShieldAlert className="w-8 h-8" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1">Critical Alerts</p>
+                <p className="text-3xl font-bold text-slate-900">0</p>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center hover:border-emerald-200 transition-colors">
+              <div className="bg-emerald-100 p-4 rounded-xl mr-5 text-emerald-800">
+                <Globe className="w-8 h-8" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1">Server Health</p>
+                <p className="text-3xl font-bold text-emerald-600 tracking-tight">99.8%</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden relative w-full max-w-full">
+            <div className="px-8 py-6 border-b border-slate-100 bg-white flex flex-col md:flex-row md:items-center justify-between relative z-10 gap-4">
+              <div>
+                <h2 className="font-bold text-xl text-slate-900 font-display">User Intelligence Registry</h2>
+                <p className="text-sm text-slate-500 mt-1">Manage global access, block bad actors, and reset credentials.</p>
+              </div>
+              <div className="flex items-center space-x-3">
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-3 flex items-center text-slate-400"><Users className="w-4 h-4"/></span>
+                  <input 
+                    type="text" 
+                    placeholder="Search accounts..." 
+                    className="bg-slate-50 border border-slate-200 pl-10 pr-4 py-2 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition-all w-full md:w-64"
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                  />
+                </div>
+                <button className="bg-slate-900 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-800 transition">Add User</button>
+              </div>
+            </div>
+            <div className="overflow-x-auto w-full max-w-full block relative z-0">
+              <table className="min-w-full divide-y divide-slate-100">
+                <thead className="bg-slate-50/80 backdrop-blur-sm sticky top-0">
+                  <tr>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Account Details</th>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Tier</th>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Network Logic</th>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Client Identity</th>
+                    <th className="px-8 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Operations</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-100">
+                  {filteredUsers.length > 0 ? filteredUsers.map((u: any) => (
+                    <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-8 py-5 whitespace-nowrap">
+                        <div className="flex items-center">
+                           <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center text-white text-xs font-bold mr-4">
+                              {u.email[0].toUpperCase()}
+                           </div>
+                           <div>
+                              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                                {u.email}
+                                {u.memberId && (
+                                  <span className="bg-slate-150 text-slate-700 border border-slate-200 text-[8px] font-mono px-1 rounded font-black tracking-tight">{u.memberId}</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 mt-0.5 font-semibold">
+                                {u.fullName || "No Name Entered"} • {u.businessName || "No Biz Entered"}
+                              </div>
+                              {u.idNumber && (
+                                <div className="text-[9px] text-indigo-600 font-bold font-mono mt-0.5">ID: {u.idNumber}</div>
+                              )}
+                              <div className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-tighter font-medium">Joined {u.joined}</div>
+                           </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-5 whitespace-nowrap text-sm">
+                        <div className="flex flex-col space-y-1.5">
+                          <div className="flex items-center space-x-1">
+                            <span className="text-[9px] text-slate-400 font-bold uppercase w-10">Plan:</span>
+                            <select
+                              value={u.plan || 'FREE'}
+                              onChange={(e) => handleUpdateUserPlan(u.id, e.target.value)}
+                              className="bg-slate-100 text-slate-800 text-[10px] font-extrabold uppercase tracking-wider rounded-lg border border-slate-200 px-2 py-1 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                            >
+                              <option value="FREE">FREE (Free Basic R0)</option>
+                              <option value="ESSENTIAL">ESSENTIAL (Verified R199.99)</option>
+                              <option value="PREMIUM">PREMIUM (Premium R9,999)</option>
+                              <option value="ENTERPRISE_BASIC">ENTERPRISE BASIC (R499,999)</option>
+                              <option value="ENTERPRISE_PREMIUM">ENTERPRISE PREMIUM (R999,999)</option>
+                              <option value="ELITE_BASIC">ELITE BASIC (R25M)</option>
+                              <option value="ELITE_PREMIUM">ELITE PREMIUM (R50M)</option>
+                              <option value="ELITE_ENTERPRISE">ELITE ENTERPRISE (R100M)</option>
+                            </select>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <span className="text-[9px] text-slate-400 font-bold uppercase w-10">Role:</span>
+                            <select
+                              value={u.role || 'USER'}
+                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                              className="bg-slate-100 text-slate-800 text-[10px] font-extrabold uppercase tracking-wider rounded-lg border border-slate-200 px-2 py-1 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                            >
+                              <option value="USER">USER</option>
+                              <option value="ADMIN">ADMIN</option>
+                            </select>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-5 whitespace-nowrap text-xs text-slate-600 font-mono">
+                        <span className="bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200">{u.lastLoginIP}</span>
+                        <div className="text-[9px] text-slate-400 mt-1 font-sans">{u.location} • RSA_EXIT_V4</div>
+                      </td>
+                      <td className="px-8 py-5 whitespace-nowrap">
+                        <div className="flex items-center text-xs text-slate-600 font-bold">
+                          <MonitorSmartphone className="w-4 h-4 mr-2" />
+                          {u.device}
+                        </div>
+                        {u.hasSetup2FA ? (
+                          <div className="text-[9px] text-emerald-600 font-extrabold mt-1.5 inline-flex items-center bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 uppercase tracking-widest">
+                            ● 2FA Active (Completed)
+                          </div>
+                        ) : (
+                          <div className="text-[9px] text-amber-600 font-extrabold mt-1.5 inline-flex items-center bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-widest">
+                            ○ Pending 2FA (Incomplete)
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-8 py-5 whitespace-nowrap text-right">
+                        {user?.email?.toLowerCase() === u.email?.toLowerCase() ? (
+                          <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg select-none inline-block">
+                            Protected Admin (You)
+                          </span>
+                        ) : (
+                          <div className="flex items-center justify-end space-x-2">
+                             <button onClick={() => console.log("Verification code sent to user email.")} className="text-[10px] font-bold uppercase tracking-widest bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200 transition">Reset</button>
+                             <button onClick={() => blockUser(u.id)} className="text-[10px] font-bold uppercase tracking-widest bg-amber-50 text-amber-600 border border-amber-100 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition">Block</button>
+                             <button onClick={() => removeUser(u.id)} className="text-[10px] font-bold uppercase tracking-widest bg-rose-50 text-rose-600 border border-rose-100 px-3 py-1.5 rounded-lg hover:bg-rose-100 transition">Delete</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={5} className="p-20 text-center text-slate-400 italic">No matching user accounts found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {activeTab === 'ads' && (
+        <div className="space-y-6">
+          {/* Section 1: Separated Bulk CSV Upload & AI NLP Sorting Suite */}
+          <div className="bg-gradient-to-br from-slate-950 to-indigo-950 text-white rounded-3xl p-8 border border-indigo-900/40 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+              <Database className="w-40 h-40" />
+            </div>
+            
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="bg-indigo-500/20 text-indigo-300 text-[10px] font-black tracking-widest uppercase px-2.5 py-1 rounded-md border border-indigo-500/30">
+                  SearchBiz.co.za Core NLP
+                </span>
+                <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-black tracking-widest uppercase px-2.5 py-1 rounded-md border border-emerald-500/30">
+                  AI NLP Active
+                </span>
+              </div>
+              <h2 className="font-bold text-2xl font-display text-white">AI NLP CSV Parser</h2>
+              <p className="text-slate-300 text-sm mt-1 max-w-xl">
+                Upload business listings via CSV and utilize our sub-millisecond AI NLP model to auto-classify categories and sort them into their respected SA provincial directories.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-6 pb-6 border-b border-indigo-900/30">
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-slate-300 mb-2">Target Province (Auto-Sort or Fallback)</label>
+                  <select
+                    value={csvDefaultProvince}
+                    onChange={(e) => setCsvDefaultProvince(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl px-3 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  >
+                    <option value="all" className="bg-slate-900 text-emerald-300 font-bold">
+                      🌍 All Provinces (Auto-Sort from CSV)
+                    </option>
+                    {SA_PROVINCES.map((prov) => (
+                      <option key={prov.slug} value={prov.slug} className="bg-slate-900 text-slate-100">
+                        {prov.name} ({prov.slug})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-slate-300 mb-2">Choose Target Category</label>
+                  <select
+                    value={csvDefaultCategory}
+                    onChange={(e) => setCsvDefaultCategory(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl px-3 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  >
+                    <option value="Other" className="bg-slate-900 text-emerald-300 font-bold">
+                      Auto-Detect from CSV / Choose Category...
+                    </option>
+                    {CATEGORIES_STRUCTURED.map((group) => (
+                      <optgroup key={group.name} label={group.name} className="bg-slate-900 text-white">
+                        <option value={group.name} className="bg-slate-800 text-emerald-300 font-bold">
+                          📂 ALL {group.name}
+                        </option>
+                        {group.subcategories.map((sub) => (
+                          <option key={sub} value={sub} className="bg-slate-900 text-slate-100">
+                            {sub}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-slate-300 mb-2">AI Local NLP Routing</label>
+                  <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl p-2.5 h-[46px] justify-between">
+                    <span className="text-xs text-slate-200 font-bold">Auto-sort into Provinces from CSV</span>
+                    <button
+                      type="button"
+                      onClick={() => setCsvAiEnable(!csvAiEnable)}
+                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${csvAiEnable ? 'bg-indigo-600' : 'bg-slate-750'}`}
+                    >
+                      <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${csvAiEnable ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-6">
+                <div className="text-xs text-slate-400">
+                  <span className="font-bold text-white block">CSV Auto-Sort Engine Active:</span>
+                  Automatically sorts every business into its Province, Town/City &amp; Suburb from the CSV file and assigns your chosen Category.
+                </div>
+                <label className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3.5 rounded-xl font-bold text-sm transition cursor-pointer text-center shadow-lg shadow-indigo-600/30">
+                  {csvUploadLoading ? "Uploading & Sorting Provinces..." : "Select and Upload CSV File(s)"}
+                  <input type="file" accept=".csv" multiple className="hidden" onChange={async (e) => {
+                    const files = e.target.files ? Array.from(e.target.files) : [];
+                    if (files.length === 0) return;
+                    setCsvUploadLoading(true);
+                    try {
+                      const newAds: any[] = [];
+                      let skippedNoPhone = 0;
+                      let skippedDuplicates = 0;
+
+                      const normTitle = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                      const normPhone = (s: string) => (s || "").replace(/[^0-9]/g, '');
+                      const normAddr = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                      const seenBatchKeys = new Set<string>();
+                      const chosenCat = (csvDefaultCategory && csvDefaultCategory !== "Other" && csvDefaultCategory !== "auto") ? csvDefaultCategory : "";
+                      const chosenCodeMatch = chosenCat ? chosenCat.match(/^(\d+\.\d+)\s+/) : null;
+                      const chosenCode = chosenCodeMatch ? chosenCodeMatch[1] : "";
+
+                      for (const file of files) {
+                        const content = await file.text();
+                        if (!content) continue;
+                        const rawRows = parseCsvText(content);
+                        if (rawRows.length < 2) continue;
+
+                        const headers = rawRows[0].map(h => (h || "").trim().toLowerCase());
+
+                        for (let i = 1; i < rawRows.length; i++) {
+                          const cols = rawRows[i];
+                          if (!cols || cols.length < 1 || cols.every(c => !c)) continue;
+                          
+                          const rec = parseCsvRowToRecord(headers, cols, csvDefaultCategory, csvDefaultProvince, file.name);
+                          const title = rec.title;
+                          const address = rec.address;
+                          const primaryPhone = rec.phone || rec.telephone || rec.whatsapp || "";
+                          const services = rec.servicesOffered;
+                          const website = rec.website;
+
+                          const cleanPhone = primaryPhone.replace(/[\s\-\(\)\.]/g, '');
+                          const hasAddress = Boolean((address || rec.suburb || rec.city || "").trim());
+                          if (!title || !hasAddress || !cleanPhone || cleanPhone === "·" || cleanPhone === "" || cleanPhone.length < 7) {
+                            skippedNoPhone++;
+                            continue;
+                          }
+
+                          const nT = normTitle(title);
+                          const nP = normPhone(primaryPhone);
+                          const nA = normAddr(address || `${rec.suburb || ''} ${rec.city || ''}`);
+                          if (nT && nP && nA) {
+                            const tripletKey = `${nT}|${nP}|${nA}`;
+                            if (seenBatchKeys.has(tripletKey)) {
+                              skippedDuplicates++;
+                              continue;
+                            }
+                            seenBatchKeys.add(tripletKey);
+                          }
+
+                          const category = chosenCat || rec.category || "General Business Services";
+                          const categoryCode = chosenCode || rec.categoryCode || "";
+                          const location = (rec.province && rec.province !== "all") ? rec.province : (csvDefaultProvince !== "all" ? csvDefaultProvince : "gauteng");
+                          const parsedLoc = findSuburbAndTown(location, address ? `${address} ${title}` : title, rec.city);
+
+                          newAds.push({
+                            title: title || "Unknown Business",
+                            category: category,
+                            categoryCode: categoryCode,
+                            province: location,
+                            city: rec.city || parsedLoc.town,
+                            town: rec.city || parsedLoc.town,
+                            location: rec.city || parsedLoc.town,
+                            suburb: rec.suburb || parsedLoc.suburb,
+                            postalCode: rec.postalCode || "",
+                            description: rec.description || (services ? `Services offered: ${services}` : `${category} business listed in ${rec.suburb || parsedLoc.suburb}, ${rec.city || parsedLoc.town}.`),
+                            tradingHours: rec.tradingHours || "",
+                            servicesOffered: services || category,
+                            address: address || "",
+                            phone: primaryPhone,
+                            telephone: rec.telephone || primaryPhone,
+                            whatsapp: rec.whatsapp || primaryPhone,
+                            email: rec.email || "",
+                            website: website || "",
+                            socialLinks: rec.socialLinks || "",
+                            twitter: rec.twitter || "",
+                            tiktok: rec.tiktok || "",
+                            facebook: rec.facebook || "",
+                            instagram: rec.instagram || "",
+                            youtube: rec.youtube || "",
+                            linkedin: rec.linkedin || "",
+                            isApproved: true,
+                            status: "active",
+                          });
+                        }
+                      }
+
+                      if (newAds.length > 0) {
+                        const chunkSize = 2500;
+                        let totalAdded = 0;
+                        let totalUpdated = 0;
+                        for (let c = 0; c < newAds.length; c += chunkSize) {
+                          const chunk = newAds.slice(c, c + chunkSize);
+                          const res = await fetch("/api/bot/ad/bulk", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ items: chunk })
+                          });
+                          if (res.ok) {
+                            const rData = await res.json();
+                            totalAdded += Number(rData.addedCount || 0);
+                            totalUpdated += Number(rData.updatedCount || 0);
+                          }
+                        }
+                        await refreshAdminServerAds();
+                        const provBreakdown: Record<string, number> = {};
+                        for (const a of newAds) {
+                          provBreakdown[a.province] = (provBreakdown[a.province] || 0) + 1;
+                        }
+                        const provSummary = Object.entries(provBreakdown)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([k, v]) => `${k.replace(/-/g, ' ').toUpperCase()}: ${v.toLocaleString()}`)
+                          .join(" | ");
+                        alert(`Successfully uploaded and sorted ${newAds.length.toLocaleString()} business listings (${totalAdded.toLocaleString()} added, ${totalUpdated.toLocaleString()} updated) into ${Object.keys(provBreakdown).length} province(s) (${provSummary})!${skippedDuplicates > 0 ? ` (${skippedDuplicates.toLocaleString()} duplicates skipped)` : ''}${skippedNoPhone > 0 ? ` (${skippedNoPhone.toLocaleString()} missing required fields skipped)` : ''}`);
+                      } else {
+                        alert(`No new listings were imported.${skippedDuplicates > 0 ? ` (${skippedDuplicates.toLocaleString()} duplicates skipped)` : ''}${skippedNoPhone > 0 ? ` (${skippedNoPhone.toLocaleString()} rows missing Business Name, Address, or Phone/Telephone/WhatsApp skipped)` : ''}`);
+                      }
+                    } catch (err) {
+                      alert("Error syncing CSV batch to SearchBiz server.");
+                    } finally {
+                      setCsvUploadLoading(false);
+                      e.target.value = "";
+                    }
+                  }} />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Ad Placement Lifecycle Table */}
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden relative w-full max-w-full">
+            <div className="px-8 py-6 border-b border-slate-100 bg-white flex flex-col md:flex-row md:items-center justify-between relative z-10 gap-4">
+               <div>
+                 <h2 className="font-bold text-xl text-slate-900 font-display">Ad Placement Lifecycle</h2>
+                 <p className="text-sm text-slate-500 mt-1">Directly modify advertisements, change tiering, or remove listings.</p>
+               </div>
+               <div className="flex flex-wrap items-center gap-3">
+                 <button 
+                   onClick={async () => {
+                     setIsSyncingAds(true);
+                     try {
+                       const [fresh, serverData] = await Promise.all([
+                         fetchAndStoreAds(),
+                         refreshAdminServerAds(),
+                       ]);
+                       if (fresh && Array.isArray(fresh) && fresh.length > 0) {
+                         setAds(fresh);
+                       }
+                       const totalLive = serverData?.adminStats?.total ?? serverData?.globalTotalAdsCount ?? fresh?.length ?? ads.length;
+                       const approvedLive = serverData?.adminStats?.approved ?? 0;
+                       const pendingLive = serverData?.adminStats?.pendingApproval ?? 0;
+                       alert(
+                         `Synced successfully with server database! Total listings: ${totalLive.toLocaleString()} (${approvedLive.toLocaleString()} Approved, ${pendingLive.toLocaleString()} Pending Approval)`
+                       );
+                     } catch (err: any) {
+                       alert("Sync error: " + (err?.message || "Could not fetch central data"));
+                     } finally {
+                       setIsSyncingAds(false);
+                     }
+                   }} 
+                   disabled={isSyncingAds}
+                   className="bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 px-4 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 cursor-pointer disabled:opacity-60" 
+                   id="sync-db-btn"
+                   title="Force refresh listings from central cloud database"
+                 >
+                   <RefreshCw className={`w-4 h-4 ${isSyncingAds ? 'animate-spin text-emerald-600' : 'text-slate-600'}`} />
+                   <span>{isSyncingAds ? 'Syncing...' : `Sync DB (${(adminStats?.total ?? ads.length).toLocaleString()})`}</span>
+                 </button>
+                 <button
+                   onClick={() => {
+                     setDeleteScope("all");
+                     setDeletePasswordInput("");
+                     setDeletePasswordError("");
+                     setIsDeleteModalOpen(true);
+                   }}
+                   className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-4 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 cursor-pointer shadow-sm"
+                   id="purge-ads-btn"
+                   title="Open master listing purge and deletion tool"
+                 >
+                   <Trash2 className="w-4 h-4 text-rose-600" />
+                   <span>Delete / Purge Ads</span>
+                 </button>
+                 <button onClick={() => router.push("/create-ad")} className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-700 transition shadow-lg shadow-emerald-600/20 w-full sm:w-auto text-center cursor-pointer" id="create-ad-btn">Provision New Advertisement</button>
+               </div>
+            </div>
+
+            {/* Dynamic Pending Approval Alert Banner */}
+            {(() => {
+              const pendingCount =
+                adminStats?.pendingApproval ??
+                ads.filter(a => a.adminApproved !== true && !a.verified && !a.isPremium && !a.isSponsor).length;
+              const approvedCount = adminStats?.approved ?? 0;
+              if (pendingCount === 0 && approvedCount === 0) return null;
+              return (
+                <div className="mx-8 mt-6 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-black text-xl shrink-0 shadow-md shadow-amber-500/20">
+                      ⏳
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black uppercase tracking-wider text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded-md">
+                          Admin Verification & Approval Control
+                        </span>
+                        <span className="text-xs font-bold text-amber-900 font-mono">
+                          {pendingCount.toLocaleString()} unapproved • {approvedCount.toLocaleString()} approved
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-slate-900 text-base mt-0.5">
+                        {pendingCount > 0
+                          ? `${pendingCount.toLocaleString()} Listing${pendingCount > 1 ? 's' : ''} Pending Your Verification & Approval`
+                          : `All ${approvedCount.toLocaleString()} Listings Approved by Admin`}
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Uploaded listings appear in the directory as Unverified until you approve them. Approve all in 1 click or review and approve individually below.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto shrink-0">
+                    {pendingCount > 0 && (
+                      <button
+                        onClick={handleApproveAllPending}
+                        disabled={isSyncingAds}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-5 py-3 rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer w-full sm:w-auto justify-center disabled:opacity-60"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        Approve All {pendingCount.toLocaleString()} Pending
+                      </button>
+                    )}
+                    {pendingCount > 0 && (
+                      <button
+                        onClick={() => setAdTypeFilter('pending_approval')}
+                        className="bg-white hover:bg-amber-100/70 border border-amber-300 text-amber-950 text-xs font-bold px-4 py-3 rounded-xl transition cursor-pointer w-full sm:w-auto justify-center"
+                      >
+                        Filter Pending Only
+                      </button>
+                    )}
+                    {approvedCount > 0 && (
+                      <button
+                        onClick={handleResetAllUnverifiedToPending}
+                        disabled={isSyncingAds}
+                        className="bg-white hover:bg-rose-50 border border-slate-300 text-slate-700 hover:text-rose-700 text-xs font-bold px-4 py-3 rounded-xl transition cursor-pointer w-full sm:w-auto justify-center"
+                      >
+                        Reset Unverified to Pending
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Real-time Administrative Controls & Multi-dimensional Search Engine */}
+            <div className="px-8 py-6 bg-slate-50/50 border-b border-slate-200 relative z-10 space-y-6" id="admin-search-engine">
+              
+              {/* PRIMARY ROW: SOURCE SEPARATION TAB TOGGLE */}
+              <div>
+                <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2.5">
+                  1. Choose Listing Database Source
+                </span>
+                <div className="flex flex-wrap gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => { setAdSourceFilter("all"); }}
+                    className={`px-4 py-3 rounded-2xl font-bold text-xs transition-all duration-200 flex items-center gap-2 ${adSourceFilter === "all" ? "bg-slate-950 text-white shadow-lg shadow-slate-900/10 scale-[1.02]" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"}`}
+                  >
+                    All Ads Database ({(adminStats?.total ?? ads.length).toLocaleString()})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAdSourceFilter("preference"); }}
+                    className={`px-4 py-3 rounded-2xl font-bold text-xs transition-all duration-200 flex items-center gap-2 ${adSourceFilter === "preference" ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/10 scale-[1.02]" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"}`}
+                  >
+                    Preferences / Manual Ads ({(adminStats?.preference ?? ads.filter(a => !a.id?.startsWith("csv_") && !a.id?.startsWith("csv-") && !a.id?.startsWith("ad-agent-")).length).toLocaleString()})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAdSourceFilter("csv"); }}
+                    className={`px-4 py-3 rounded-2xl font-bold text-xs transition-all duration-200 flex items-center gap-2 ${adSourceFilter === "csv" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/10 scale-[1.02]" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"}`}
+                  >
+                    Bulk CSV & Bot Uploaded Ads ({(adminStats?.csvAndBot ?? ads.filter(a => a.id?.startsWith("csv_") || a.id?.startsWith("csv-") || a.id?.startsWith("ad-agent-")).length).toLocaleString()})
+                  </button>
+                </div>
+              </div>
+
+              {/* SECONDARY ROW: GRANULAR LIFE CYCLE TYPE FILTERS */}
+              <div>
+                <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2.5">
+                  2. Dynamic Life-Cycle State Filters (Tier & Intention)
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: "all", label: "All Tiers / States", color: "bg-slate-800 text-slate-50 hover:bg-slate-900", count: adminStats?.total ?? ads.length },
+                    { id: "pending_approval", label: "⏳ Pending Approval", color: "bg-amber-100 text-amber-950 hover:bg-amber-200 border border-amber-300 font-extrabold", count: adminStats?.pendingApproval ?? ads.filter(a => a.adminApproved !== true && !a.verified && !a.isPremium && !a.isSponsor).length },
+                    { id: "approved", label: "✓ Approved by Admin", color: "bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border border-emerald-300 font-extrabold", count: adminStats?.approved ?? ads.filter(a => a.adminApproved === true || a.verified === true || a.isPremium === true || a.isSponsor === true).length },
+                    { id: "free", label: "Basic Free Ads", color: "bg-white border border-slate-200 text-slate-700 hover:bg-slate-100", count: adminStats?.free ?? ads.filter(a => !a.isPremium && !a.isSponsor).length },
+                    { id: "premium", label: "Premium Verified", color: "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-100", count: adminStats?.premium ?? ads.filter(a => a.isPremium && !a.isSponsor).length },
+                    { id: "sponsor", label: "Featured Sponsor", color: "bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-100", count: adminStats?.sponsor ?? ads.filter(a => a.isSponsor).length },
+                    { id: "claimed", label: "Claimed Listings", color: "bg-sky-50 text-sky-800 hover:bg-sky-100 border border-sky-100", count: adminStats?.claimed ?? ads.filter(a => a.isClaimed === true).length },
+                    { id: "unclaimed", label: "Unclaimed Listings", color: "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300", count: adminStats?.unclaimed ?? ads.filter(a => a.isClaimed !== true && !a.verified).length },
+                    { id: "remove", label: "Removal Requests ⚠", color: "bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-100", count: adminStats?.remove ?? ads.filter(a => a.claimIntention === "remove").length },
+                    { id: "claimed_free", label: "Claimed & Request Free", color: "bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-100", count: adminStats?.claimedFree ?? ads.filter(a => a.isClaimed === true && a.claimIntention === "free").length },
+                  ].map((btn) => (
+                    <button
+                      key={btn.id}
+                      type="button"
+                      onClick={() => setAdTypeFilter(btn.id as any)}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${adTypeFilter === btn.id ? "bg-slate-900 border border-slate-900 text-white shadow-sm scale-105" : btn.color}`}
+                    >
+                      {btn.label} <span className="text-[10px] opacity-75 font-mono">({btn.count.toLocaleString()})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* TERTIARY ROW: SEARCH PARAMETERS BY PROVINCE, TOWN & CATEGORIES */}
+              <div>
+                <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2.5">
+                  3. Multi-dimensional search filters (Province, Town and Categories)
+                </span>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-5 rounded-2xl border border-slate-200">
+                  {/* Search Term Input */}
+                  <div className="relative">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block mb-1">Search Name / Phone / Services</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="e.g. Solar, Electrician..."
+                        value={adSearchTerm}
+                        onChange={(e) => setAdSearchTerm(e.target.value)}
+                        className="w-full bg-slate-50 text-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs border border-slate-250 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 placeholder-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Province Dropdown */}
+                  <div>
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block mb-1">Filter by Province</label>
+                    <select
+                      value={adSearchProvince}
+                      onChange={(e) => setAdSearchProvince(e.target.value)}
+                      className="w-full bg-slate-50 text-slate-800 rounded-xl px-3 py-2.5 text-xs border border-slate-250 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-bold"
+                    >
+                      <option value="all">All Provinces (RSA) ({(adminStats?.total ?? ads.length).toLocaleString()})</option>
+                      {SA_PROVINCES.map((prov) => {
+                        const pCnt = adminStats?.byProvince?.[prov.slug] ?? ads.filter(a => (a.province || "").toLowerCase() === prov.slug).length;
+                        return (
+                          <option key={prov.slug} value={prov.slug}>
+                            {prov.name} ({pCnt.toLocaleString()})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* Town / City Input */}
+                  <div>
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block mb-1">Filter by City or Town name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Durban, Pretoria..."
+                      value={adSearchCity}
+                      onChange={(e) => setAdSearchCity(e.target.value)}
+                      className="w-full bg-slate-50 text-slate-800 rounded-xl px-3 py-2.5 text-xs border border-slate-250 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 placeholder-slate-400"
+                    />
+                  </div>
+
+                  {/* Category Dropdown */}
+                  <div>
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block mb-1">Filter by Category Sector</label>
+                    <select
+                      value={adSearchCategory}
+                      onChange={(e) => setAdSearchCategory(e.target.value)}
+                      className="w-full bg-slate-50 text-slate-800 rounded-xl px-3 py-2.5 text-xs border border-slate-250 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-bold"
+                    >
+                      <option value="all">All 20 Business Sectors ({(adminStats?.total ?? ads.length).toLocaleString()} Ads)</option>
+                      {CATEGORIES_STRUCTURED.map((group) => {
+                        const cCnt =
+                          adminStats?.byCategory?.[group.name.toLowerCase()] ??
+                          adminStats?.byCategory?.[group.name] ??
+                          adminStats?.byCategory?.[group.cleanName.toLowerCase()] ??
+                          0;
+                        return (
+                          <option key={group.id} value={group.name}>
+                            {group.name} — {cCnt.toLocaleString()} Ads
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+                
+                {/* Active Filter Helper Alert if filtered */}
+                {(adSearchTerm || adSearchProvince !== "all" || adSearchCity || adSearchCategory !== "all" || adSourceFilter !== "all" || adTypeFilter !== "all") && (
+                  <div className="flex items-center justify-between mt-3 text-xs bg-emerald-50 text-emerald-800 px-4 py-2.5 rounded-xl border border-emerald-100">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <Sparkles className="w-4 h-4 text-emerald-600 animate-pulse" />
+                      <span>Showing <strong>{(adminFilteredTotal ?? getFilteredAds().length).toLocaleString()}</strong> filtered listings out of <strong>{(adminStats?.total ?? ads.length).toLocaleString()}</strong> available records.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdSearchTerm("");
+                        setAdSearchProvince("all");
+                        setAdSearchCity("");
+                        setAdSearchCategory("all");
+                        setAdSourceFilter("all");
+                        setAdTypeFilter("all");
+                      }}
+                      className="text-[10px] font-black uppercase text-emerald-700 hover:text-emerald-900 border-b border-emerald-700"
+                    >
+                      Clear All Search Filters
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Table & Pagination Controls */}
+            {(() => {
+              const allFilteredAds = (adminPageAds !== null && adminFilteredTotal !== null) ? adminPageAds : getFilteredAds();
+              const totalCount = adminFilteredTotal !== null ? adminFilteredTotal : allFilteredAds.length;
+              const totalAdPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
+              const currentAdPage = Math.min(Math.max(1, adPage), totalAdPages);
+              const paginatedAdsList =
+                adminPageAds !== null
+                  ? adminPageAds
+                  : allFilteredAds.slice((currentAdPage - 1) * ITEMS_PER_PAGE, currentAdPage * ITEMS_PER_PAGE);
+
+              return (
+                <>
+                  {renderAdPaginationControls("top")}
+
+                  {/* Multi-Select Action Banner */}
+                  {selectedAdIds.length > 0 && (
+                    <div className="bg-rose-50 border-y border-rose-200 px-8 py-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200">
+                      <div className="flex items-center gap-3">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
+                        <span className="text-xs font-bold text-rose-950">
+                          <strong>{selectedAdIds.length}</strong> listing{selectedAdIds.length > 1 ? "s" : ""} selected for bulk action
+                        </span>
+                        <button
+                          onClick={() => {
+                            const pageIds = paginatedAdsList.map((a: any) => a.id);
+                            setSelectedAdIds(Array.from(new Set([...selectedAdIds, ...pageIds])));
+                          }}
+                          className="text-[11px] font-bold text-rose-700 underline hover:text-rose-900 cursor-pointer ml-2"
+                        >
+                          Select All {paginatedAdsList.length} on Page
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleBulkApproveSelected(selectedAdIds)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-xl font-bold text-xs transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Approve Selected ({selectedAdIds.length})</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeleteScope("selected");
+                            setDeletePasswordInput("");
+                            setDeletePasswordError("");
+                            setIsDeleteModalOpen(true);
+                          }}
+                          className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-1.5 rounded-xl font-bold text-xs transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete Selected ({selectedAdIds.length})</span>
+                        </button>
+                        <button
+                          onClick={() => setSelectedAdIds([])}
+                          className="bg-white hover:bg-rose-100/50 text-rose-800 border border-rose-300 px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer"
+                        >
+                          Clear Selection
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto w-full max-w-full block relative z-0 max-h-[70vh] overflow-y-auto border-t border-b border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-100">
+                      <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+                        <tr>
+                          <th className="px-4 py-4 w-12 text-center">
+                            <input
+                              type="checkbox"
+                              checked={paginatedAdsList.length > 0 && paginatedAdsList.every((a: any) => selectedAdIds.includes(a.id))}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  const newIds = Array.from(new Set([...selectedAdIds, ...paginatedAdsList.map((a: any) => a.id)]));
+                                  setSelectedAdIds(newIds);
+                                } else {
+                                  const pageIds = new Set(paginatedAdsList.map((a: any) => a.id));
+                                  setSelectedAdIds(selectedAdIds.filter(id => !pageIds.has(id)));
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                              title="Select all on this page"
+                            />
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Creative / Title</th>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Metadata</th>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Tiering</th>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Global State</th>
+                          <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-slate-100">
+                        {paginatedAdsList.length > 0 ? (
+                          paginatedAdsList.map((ad: any) => {
+                            const isAdApprovedByAdmin =
+                              ad.adminApproved === true ||
+                              ad.verified === true ||
+                              ad.isPremium === true ||
+                              ad.isSponsor === true;
+                            return (
+                            <tr key={ad.id} className={`hover:bg-slate-50/50 transition-colors ${selectedAdIds.includes(ad.id) ? "bg-rose-50/30" : ""}`}>
+                              <td className="px-4 py-5 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedAdIds.includes(ad.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedAdIds([...selectedAdIds, ad.id]);
+                                    } else {
+                                      setSelectedAdIds(selectedAdIds.filter(id => id !== ad.id));
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                />
+                              </td>
+                              <td className="px-6 py-5">
+                                <div className="flex items-center">
+                                   {ad.image && (
+                                     <div className="w-12 h-12 rounded-lg overflow-hidden mr-4 border border-slate-100 flex-shrink-0">
+                                        <img src={ad.image} className="w-full h-full object-cover" alt="" />
+                                     </div>
+                                   )}
+                                   <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                        <span className="text-sm font-bold text-slate-900 truncate block max-w-[200px]">{ad.title}</span>
+                                        {isAdApprovedByAdmin ? (
+                                          <span className="px-1.5 py-0.5 bg-emerald-100 border border-emerald-300 text-emerald-800 text-[8px] font-black rounded uppercase tracking-wider">Approved ✓</span>
+                                        ) : (
+                                          <span className="px-1.5 py-0.5 bg-amber-100 border border-amber-300 text-amber-900 text-[8px] font-black rounded uppercase tracking-wider">Pending Approval ⏳</span>
+                                        )}
+                                        {ad.id?.startsWith("csv-") || ad.id?.startsWith("csv_") || ad.id?.startsWith("ad-agent-") ? (
+                                          <span className="px-1.5 py-0.5 bg-indigo-50 border border-indigo-150 text-indigo-700 text-[8px] font-black rounded uppercase tracking-wider">CSV / Bot Upload</span>
+                                        ) : (
+                                          <span className="px-1.5 py-0.5 bg-emerald-50 border border-emerald-150 text-emerald-700 text-[8px] font-black rounded uppercase tracking-wider">Preference</span>
+                                        )}
+                                        {ad.isClaimed === true ? (
+                                          <span className="px-1.5 py-0.5 bg-sky-50 border border-sky-100 text-sky-700 text-[8px] font-black rounded uppercase tracking-wider">Claimed ✓</span>
+                                        ) : (
+                                          <span className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-500 text-[8px] font-black rounded uppercase tracking-wider">Unclaimed</span>
+                                        )}
+                                        {ad.claimIntention === "remove" && (
+                                          <span className="px-1.5 py-0.5 bg-rose-100 border border-rose-200 text-rose-700 text-[8px] font-black rounded uppercase tracking-wider animate-pulse">REMOVAL REQ ⚠</span>
+                                        )}
+                                        {ad.isClaimed === true && ad.claimIntention === "free" && (
+                                          <span className="px-1.5 py-0.5 bg-amber-100 border border-amber-250 text-amber-800 text-[8px] font-black rounded uppercase tracking-wider">REQ FREE</span>
+                                        )}
+                                      </div>
+                                      <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[320px]">{ad.description || "No description provided."}</div>
+                                      {(() => {
+                                        const owner = users.find(u => 
+                                          (u.email && ad.email && u.email.trim().toLowerCase() === ad.email.trim().toLowerCase()) ||
+                                          (u.id && ad.userId && String(u.id) === String(ad.userId)) ||
+                                          (u.email && ad.ownerEmail && u.email.trim().toLowerCase() === ad.ownerEmail.trim().toLowerCase()) ||
+                                          (u.email && ad.userEmail && u.email.trim().toLowerCase() === ad.userEmail.trim().toLowerCase())
+                                        );
+                                        if (!owner) return null;
+                                        return (
+                                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px] font-medium text-slate-500">
+                                            <span>Owner:</span>
+                                            <span className="text-slate-700 font-bold">{owner.email}</span>
+                                            {owner.memberId && (
+                                              <span className="bg-slate-100 text-slate-800 px-1 py-0.2 rounded font-mono font-bold">{owner.memberId}</span>
+                                            )}
+                                            {owner.idNumber && (
+                                              <span className="bg-indigo-50 text-indigo-700 px-1 py-0.2 rounded font-mono font-bold">ID: {owner.idNumber}</span>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
+                                   </div>
+                                </div>
+                              </td>
+                              <td className="px-8 py-5 whitespace-nowrap">
+                                 <div className="text-xs font-bold text-slate-600">{ad.category}</div>
+                                 <div className="text-[10px] text-slate-400 mt-0.5">{ad.location || ad.province || "RSA"} • RSA</div>
+                              </td>
+                              <td className="px-8 py-5 whitespace-nowrap">
+                                {ad.isSponsor ? (
+                                  <span className="px-3 py-1.5 bg-indigo-100 text-indigo-800 text-[10px] font-extrabold uppercase rounded-lg border border-indigo-200">Featured Sponsor</span>
+                                ) : ad.isSpotlight ? (
+                                  <span className="px-3 py-1.5 bg-amber-100 text-amber-900 text-[10px] font-extrabold uppercase rounded-lg border border-amber-300">Spotlight Deal ★</span>
+                                ) : ad.isBannerPlacement ? (
+                                  <span className="px-3 py-1.5 bg-rose-100 text-rose-800 text-[10px] font-extrabold uppercase rounded-lg border border-rose-300">Banner Header</span>
+                                ) : ad.isVideoPromo ? (
+                                  <span className="px-3 py-1.5 bg-cyan-100 text-cyan-800 text-[10px] font-extrabold uppercase rounded-lg border border-cyan-300">Video Promo 🎥</span>
+                                ) : ad.isPremium ? (
+                                  <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase rounded-lg border border-emerald-200">Premium Verified</span>
+                                ) : (
+                                  <span className="px-3 py-1.5 bg-slate-100 text-slate-500 text-[10px] font-extrabold uppercase rounded-lg border border-slate-200">Basic Listing</span>
+                                )}
+                              </td>
+                              <td className="px-8 py-5">
+                                <div className="flex flex-col gap-2 min-w-[160px]">
+                                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Tiering Tier</label>
+                                  <select 
+                                    value={
+                                      ad.isSponsor ? "SPONSOR" : 
+                                      ad.isSpotlight ? "SPOTLIGHT" : 
+                                      ad.isBannerPlacement ? "BANNER" : 
+                                      ad.isVideoPromo ? "VIDEO" : 
+                                      ad.isPremium ? "PREMIUM" : "BASIC"
+                                    }
+                                    onChange={(e) => changeAdTier(ad.id, e.target.value)}
+                                    className="bg-slate-50 border border-slate-200 text-[10px] font-bold uppercase tracking-tighter text-slate-700 rounded-lg px-2 py-1.5 outline-none cursor-pointer focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition-all font-sans font-medium w-full"
+                                  >
+                                    <option value="BASIC">Basic Free</option>
+                                    <option value="PREMIUM">Premium Verified</option>
+                                    <option value="SPONSOR">Featured Sponsor</option>
+                                    <option value="SPOTLIGHT">Spotlight Flash Deal</option>
+                                    <option value="BANNER">Banner Header Placement</option>
+                                    <option value="VIDEO">Video Enabled Promo</option>
+                                  </select>
+
+                                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mt-1">Placement Override</label>
+                                  <select 
+                                    value={ad.fixedPosition || "standard"}
+                                    onChange={(e) => changeAdPosition(ad.id, e.target.value)}
+                                    className="bg-slate-50 border border-slate-200 text-[10px] font-bold uppercase tracking-tighter text-slate-700 rounded-lg px-2 py-1.5 outline-none cursor-pointer focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition-all font-sans font-medium w-full"
+                                  >
+                                    <option value="standard">Standard Placement</option>
+                                    <option value="top">Always on Top ⇧</option>
+                                    <option value="middle">Always in Middle ↔</option>
+                                    <option value="bottom">Always in Bottom ⇩</option>
+                                  </select>
+
+                                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mt-1">Section Target</label>
+                                  <select 
+                                    value={ad.sectionTarget || "directory"}
+                                    onChange={(e) => changeAdSectionTarget(ad.id, e.target.value)}
+                                    className="bg-slate-50 border border-slate-200 text-[10px] font-bold uppercase tracking-tighter text-slate-700 rounded-lg px-2 py-1.5 outline-none cursor-pointer focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition-all font-sans font-medium w-full"
+                                  >
+                                    <option value="directory">Standard Directory</option>
+                                    <option value="news">AI News Feed</option>
+                                    <option value="tools">Tools Workspace</option>
+                                    <option value="all">All Platforms / Everywhere</option>
+                                  </select>
+
+                                  {/* CLAIMING STATE EDITORS */}
+                                  <div className="border-t border-slate-100 pt-2 mt-1 space-y-2">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider block">Claim Verification State</label>
+                                      <select 
+                                        value={ad.isClaimed === true ? "TRUE" : "FALSE"}
+                                        onChange={(e) => changeAdClaimStatus(ad.id, e.target.value === "TRUE")}
+                                        className="bg-indigo-50/50 border border-indigo-100 text-[10px] font-bold uppercase tracking-tighter text-indigo-900 rounded-lg px-2 py-1 outline-none cursor-pointer focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all font-sans font-medium w-full mt-0.5"
+                                      >
+                                        <option value="FALSE">Unclaimed (CSV/Fallback)</option>
+                                        <option value="TRUE">Claimed (Owner Assigned)</option>
+                                      </select>
+                                    </div>
+
+                                    <div>
+                                      <label className="text-[9px] font-bold text-amber-600 uppercase tracking-wider block">Assigned Claim Intention</label>
+                                      <select 
+                                        value={ad.claimIntention || "none"}
+                                        onChange={(e) => changeAdClaimIntention(ad.id, e.target.value === "none" ? "" : e.target.value)}
+                                        className="bg-amber-50/50 border border-amber-200 text-[10px] font-bold uppercase tracking-tighter text-amber-950 rounded-lg px-2 py-1 outline-none cursor-pointer focus:bg-white focus:ring-2 focus:ring-amber-500/20 transition-all font-sans font-medium w-full mt-0.5"
+                                      >
+                                        <option value="none">No Request Active</option>
+                                        <option value="premium">★ Claimed & Premium Membership (R199)</option>
+                                        <option value="free">Claimed & Keep as Free</option>
+                                        <option value="remove">Prove Ownership & Request Removal</option>
+                                      </select>
+                                    </div>
+                                  </div>
+
+                                  <label className="flex items-center gap-2 cursor-pointer mt-1">
+                                    <div className="relative inline-flex items-center cursor-pointer">
+                                      <input type="checkbox" className="sr-only peer" checked={ad.isActive !== false} onChange={() => toggleAdActive(ad.id)} />
+                                      <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600"></div>
+                                    </div>
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{ad.isActive !== false ? "LIVE" : "HIDDEN"}</span>
+                                  </label>
+
+                                  {/* 1-CLICK ADMIN LEVEL 2 (R199/MO) UNLOCK & VERIFY */}
+                                  <button
+                                    type="button"
+                                    onClick={() => changeAdTier(ad.id, ad.isPremium ? "BASIC" : "PREMIUM")}
+                                    className={`mt-1.5 w-full px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer border ${
+                                      ad.isPremium
+                                        ? "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300"
+                                        : "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 shadow-sm"
+                                    }`}
+                                  >
+                                    {ad.isPremium ? "🔒 Lock Back to Level 1" : "🔓 Unlock Level 2 (R199/mo)"}
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="px-8 py-5 whitespace-nowrap text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                   {isAdApprovedByAdmin ? (
+                                     <button
+                                       onClick={() => handleToggleApprove(ad.id, false)}
+                                       className="px-2.5 py-1 text-[10px] font-bold text-slate-500 hover:text-amber-800 bg-slate-100 hover:bg-amber-50 rounded-lg border border-slate-200 transition cursor-pointer"
+                                       title="Revoke approval status"
+                                     >
+                                       Revoke
+                                     </button>
+                                   ) : (
+                                     <button
+                                       onClick={() => handleToggleApprove(ad.id, true)}
+                                       className="px-3 py-1.5 text-[11px] font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition flex items-center gap-1 cursor-pointer"
+                                       title="Approve this listing now"
+                                     >
+                                       <Check className="w-3.5 h-3.5" /> Approve
+                                     </button>
+                                   )}
+                                   <button onClick={() => setSelectedAd(ad)} className="text-slate-400 hover:text-emerald-600 p-2 transition active:scale-90" title="Edit Info"><Edit className="w-4 h-4" /></button>
+                                   <button onClick={() => removeAd(ad.id)} className="text-slate-400 hover:text-rose-600 p-2 transition active:scale-90" title="Purge Record"><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                              </td>
+                            </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={6} className="px-8 py-12 text-center text-slate-400 text-sm">
+                              No advertisements matched your current filter criteria. Try expanding your search queries.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {renderAdPaginationControls("bottom")}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {false && (() => {
+        // Filter events based on chosen timeframe
+        const now = new Date();
+        const filteredEvents = events.filter(e => {
+          const evDate = new Date(e.timestamp);
+          if (timeframe === 'hours') {
+            return (now.getTime() - evDate.getTime()) <= 24 * 60 * 60 * 1000;
+          } else if (timeframe === 'days') {
+            return (now.getTime() - evDate.getTime()) <= 7 * 24 * 60 * 60 * 1000;
+          } else if (timeframe === 'weeks') {
+            return (now.getTime() - evDate.getTime()) <= 30 * 24 * 60 * 60 * 1000;
+          } else { // months (Year-to-date)
+            return (now.getTime() - evDate.getTime()) <= 365 * 24 * 60 * 60 * 1000;
+          }
+        });
+
+        const totalPV = filteredEvents.filter(e => e.type === 'pageview').length;
+        const totalSR = filteredEvents.filter(e => e.type === 'search').length;
+        const totalAC = filteredEvents.filter(e => e.type === 'adclick').length;
+        const uniqueIps = new Set(filteredEvents.map(e => e.ip)).size;
+
+        // Group Queries
+        const queryCounts: Record<string, number> = {};
+        filteredEvents.forEach(e => {
+          if (e.type === 'search' && e.query) {
+            const q = e.query.trim().toLowerCase();
+            queryCounts[q] = (queryCounts[q] || 0) + 1;
+          }
+        });
+        const topQueries = Object.entries(queryCounts)
+          .map(([query, count]) => ({ query, count }))
+          .sort((a,b) => b.count - a.count)
+          .slice(0, 5);
+
+        // Group Categories (from both Search & AdClicks)
+        const categoryCounts: Record<string, number> = {};
+        filteredEvents.forEach(e => {
+          if (e.type === 'search' && e.category) {
+            categoryCounts[e.category] = (categoryCounts[e.category] || 0) + 1;
+          } else if (e.type === 'adclick' && e.category) {
+            categoryCounts[e.category] = (categoryCounts[e.category] || 0) + 1;
+          }
+        });
+        const topCategories = Object.entries(categoryCounts)
+          .map(([name, count]) => ({ name, count }))
+          .sort((a,b) => b.count - a.count)
+          .slice(0, 5);
+
+        // Group Provinces
+        const provinceCounts: Record<string, number> = {};
+        filteredEvents.forEach(e => {
+          const prov = e.region || e.province;
+          if (prov) {
+            // Capitalize
+            const pName = prov.charAt(0).toUpperCase() + prov.slice(1).replace('-', ' ');
+            provinceCounts[pName] = (provinceCounts[pName] || 0) + 1;
+          }
+        });
+        const topProvinces = Object.entries(provinceCounts)
+          .map(([name, count]) => ({ name, count }))
+          .sort((a,b) => b.count - a.count)
+          .slice(0, 4);
+
+        // Group Device Proportions
+        const deviceCounts: Record<string, number> = {};
+        filteredEvents.forEach(e => {
+          if (e.device) {
+            deviceCounts[e.device] = (deviceCounts[e.device] || 0) + 1;
+          }
+        });
+        const deviceStats = Object.entries(deviceCounts).map(([name, count]) => ({ name, count }));
+
+        // Group Browser Proportions
+        const browserCounts: Record<string, number> = {};
+        filteredEvents.forEach(e => {
+          if (e.browser) {
+            browserCounts[e.browser] = (browserCounts[e.browser] || 0) + 1;
+          }
+        });
+        const browserStats = Object.entries(browserCounts).map(([name, count]) => ({ name, count }));
+
+        // Group Clicked Ads Rank
+        const clickedAdsCounts: Record<string, { title: string; count: number; category: string }> = {};
+        filteredEvents.forEach(e => {
+          if (e.type === 'adclick') {
+            const key = e.adId;
+            if (!clickedAdsCounts[key]) {
+              clickedAdsCounts[key] = { title: e.adTitle, count: 0, category: e.category };
+            }
+            clickedAdsCounts[key].count += 1;
+          }
+        });
+        const topClickedAds = Object.values(clickedAdsCounts)
+          .sort((a,b) => b.count - a.count)
+          .slice(0, 5);
+
+        return (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            {/* Header / Sub-nav control */}
+            <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between border border-slate-800 gap-6 shadow-xl shadow-slate-900/10">
+              <div>
+                <h3 className="text-xl font-bold font-display">Traffic Analytics Control Room</h3>
+                <p className="text-slate-400 text-sm mt-1">Collecting true server-proxied connections & search indexes from South African IP locations.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                <button
+                  onClick={() => {
+                    import("@/lib/analytics-utils").then(({ downloadAnalyticsOffline }) => {
+                      downloadAnalyticsOffline(filteredEvents, timeframe);
+                    });
+                  }}
+                  className="bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-white border border-emerald-500/20 px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                >
+                  Export CSV
+                </button>
+                <div className="bg-slate-800 p-1 rounded-xl border border-slate-700 flex text-xs font-bold font-mono">
+                  {(['hours', 'days', 'weeks', 'months'] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setTimeframe(t)}
+                      className={`px-3 py-1.5 rounded-lg uppercase tracking-wider transition-colors ${timeframe === t ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      {t === 'hours' ? '24h' : t === 'days' ? '1 Week' : t === 'weeks' ? '30 Days' : '1 Year'}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={purgeAllAnalytics}
+                  className="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/20 px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ml-auto md:ml-0"
+                >
+                  <Trash className="w-3.5 h-3.5" /> Purge Cache
+                </button>
+              </div>
+            </div>
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5"><Eye className="w-16 h-16 text-slate-900" /></div>
+                <p className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-1">Page Impressions</p>
+                <p className="text-4xl font-display font-bold text-slate-900 tracking-tight">{totalPV}</p>
+                <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded mt-2 inline-block">Direct tracking active</span>
+              </div>
+              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5"><Search className="w-16 h-16 text-slate-900" /></div>
+                <p className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-1">Database Queries</p>
+                <p className="text-4xl font-display font-bold text-slate-900 tracking-tight">{totalSR}</p>
+                <span className="text-[11px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded mt-2 inline-block">Real-time searches</span>
+              </div>
+              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5"><MousePointerClick className="w-16 h-16 text-slate-900" /></div>
+                <p className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-1">Sponsor Clicks</p>
+                <p className="text-4xl font-display font-bold text-slate-900 tracking-tight">{totalAC}</p>
+                <span className="text-[11px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded mt-2 inline-block">Average CTR 12.3%</span>
+              </div>
+              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5"><Globe className="w-16 h-16 text-slate-900" /></div>
+                <p className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-1">Unique Interactors</p>
+                <p className="text-4xl font-display font-bold text-slate-900 tracking-tight">{uniqueIps}</p>
+                <span className="text-[11px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded mt-2 inline-block">By Client IP Address</span>
+              </div>
+            </div>
+
+            {/* Custom Bar Charts Panel */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Left Column: Search Queries & Ad Clicks */}
+              <div className="space-y-6">
+                {/* 1. Most Popular Searches */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h4 className="font-bold text-slate-900 font-display flex items-center gap-2">
+                      <Search className="w-5 h-5 text-emerald-600" />
+                      Top Search Queries
+                    </h4>
+                    <span className="text-xs text-slate-400 font-bold uppercase font-mono">Occurrences</span>
+                  </div>
+                  {topQueries.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-sm font-medium">No search queries recorded in this timeframe.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {topQueries.map((item, idx) => {
+                        const maxCount = Math.max(...topQueries.map(q => q.count));
+                        const pct = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+                        return (
+                          <div key={idx} className="space-y-1.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-bold text-slate-800 font-mono text-xs tracking-tight">&quot;{item.query}&quot;</span>
+                              <span className="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md text-xs">{item.count}</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Ad Click Rankings */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h4 className="font-bold text-slate-900 font-display flex items-center gap-2">
+                      <MousePointerClick className="w-5 h-5 text-amber-500" />
+                      Sponsor Ad Clicks Rank
+                    </h4>
+                    <span className="text-xs text-slate-400 font-bold uppercase font-mono">Clicks</span>
+                  </div>
+                  {topClickedAds.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-sm font-medium">No advertisement interaction registered yet.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {topClickedAds.map((item, idx) => {
+                        const maxCount = Math.max(...topClickedAds.map(q => q.count));
+                        const pct = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+                        return (
+                          <div key={idx} className="space-y-1.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <div className="mr-4 min-w-0">
+                                <span className="font-bold text-slate-800 block truncate text-xs">{item.title}</span>
+                                <span className="text-[10px] text-slate-400 font-bold uppercase">{item.category}</span>
+                              </div>
+                              <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded hover:bg-amber-100 text-xs flex-shrink-0">{item.count} clicks</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-50 rounded-full overflow-hidden">
+                              <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Categories & Geographic Hubs */}
+              <div className="space-y-6">
+                {/* 3. Top Search Categories */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h4 className="font-bold text-slate-900 font-display flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-indigo-500" />
+                      Popular Service Categories
+                    </h4>
+                    <span className="text-xs text-slate-400 font-bold uppercase font-mono">Weight</span>
+                  </div>
+                  {topCategories.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-sm font-medium">No category logs.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {topCategories.map((item, idx) => {
+                        const maxCount = Math.max(...topCategories.map(q => q.count));
+                        const pct = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+                        return (
+                          <div key={idx} className="space-y-1.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-bold text-slate-800 text-xs">{item.name}</span>
+                              <span className="font-semibold text-indigo-600 font-mono text-xs">{item.count}</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Active Regional Provinces */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h4 className="font-bold text-slate-900 font-display flex items-center gap-2">
+                      <Globe className="w-5 h-5 text-blue-500" />
+                      Province / District Hotspots
+                    </h4>
+                    <span className="text-xs text-slate-400 font-bold uppercase font-mono">Sessions</span>
+                  </div>
+                  {topProvinces.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-sm font-medium">No regional logs found.</div>
+                  ) : (
+                    <div className="space-y-4.5">
+                      {topProvinces.map((item, idx) => {
+                        const maxCount = Math.max(...topProvinces.map(q => q.count));
+                        const pct = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+                        return (
+                          <div key={idx} className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 w-1/3 min-w-0">
+                              <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></div>
+                              <span className="font-bold text-slate-800 text-xs truncate">{item.name}</span>
+                            </div>
+                            <div className="w-2/3 flex items-center gap-3">
+                              <div className="h-2 flex-1 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                              </div>
+                              <span className="font-bold text-slate-700 text-xs text-right w-10 shrink-0 font-mono">{item.count}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Browser & Device Proportions */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Devices */}
+              <div className="bg-white rounded-3xl p-6 border border-slate-200">
+                <h4 className="font-bold text-slate-900 font-display mb-4 text-sm flex items-center gap-2">
+                  <MonitorSmartphone className="w-4 h-4 text-emerald-600" /> Operating Platforms
+                </h4>
+                <div className="space-y-3">
+                  {deviceStats.map((st, i) => {
+                    const totalDeviceCount = deviceStats.reduce((acc, d) => acc + d.count, 0);
+                    const percent = totalDeviceCount > 0 ? Math.round((st.count / totalDeviceCount) * 100) : 0;
+                    return (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-700">{st.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 font-mono">{percent}%</span>
+                          <span className="text-slate-400">({st.count})</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Browsers */}
+              <div className="bg-white rounded-3xl p-6 border border-slate-200">
+                <h4 className="font-bold text-slate-900 font-display mb-4 text-sm flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-indigo-600" /> Browsing Clients
+                </h4>
+                <div className="space-y-3">
+                  {browserStats.map((st, i) => {
+                    const totalBrowserCount = browserStats.reduce((acc, d) => acc + d.count, 0);
+                    const percent = totalBrowserCount > 0 ? Math.round((st.count / totalBrowserCount) * 100) : 0;
+                    return (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-700">{st.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 font-mono">{percent}%</span>
+                          <span className="text-slate-400">({st.count})</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Live Interactive Logging Table */}
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm relative">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 border-b border-slate-100 pb-6 gap-4">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 font-display">Live Network Request Stream</h3>
+                  <p className="text-sm text-slate-500 mt-1">Direct un-truncated feed of queries, page clicks, and ad views.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="bg-emerald-500/10 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1.5 uppercase font-mono animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Live Node Online
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {filteredEvents.slice(0, 50).map((log) => {
+                  let badgeColor = "bg-slate-100 text-slate-700 border-slate-200";
+                  let eventIcon = <Eye className="w-4 h-4 text-slate-500" />;
+                  let displayDetail = log.pathname || "Activity log";
+
+                  if (log.type === 'search') {
+                    badgeColor = "bg-indigo-50 text-indigo-700 border-indigo-100";
+                    eventIcon = <Search className="w-4 h-4 text-indigo-500" />;
+                    displayDetail = `Search Index: Keyword "${log.query}" under "${log.category}" in ${log.province}, ${log.area}`;
+                  } else if (log.type === 'adclick') {
+                    badgeColor = "bg-amber-50 text-amber-700 border-amber-100";
+                    eventIcon = <MousePointerClick className="w-4 h-4 text-amber-500" />;
+                    displayDetail = `Ad Banner: Clicked sponsored Listing: "${log.adTitle}" [ID: ${log.adId}]`;
+                  } else if (log.type === 'upload') {
+                    badgeColor = "bg-rose-50 text-rose-700 border-rose-100";
+                    eventIcon = <Database className="w-4 h-4 text-rose-500" />;
+                    displayDetail = `File Upload: "${log.fileName}" (Size: ${log.fileSize}b) - Scan: ${log.scanResult}`;
+                  } else if (log.type === 'external_site') {
+                    badgeColor = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                    eventIcon = <Globe className="w-4 h-4 text-emerald-500" />;
+                    displayDetail = `External Telemetry: Ping from ${log.targetUrl} - Action: ${log.action}`;
+                  } else if (log.type === 'pageview') {
+                    displayDetail = `Page View: Transitioned path "${log.pathname}"`;
+                  }
+
+                  const evTime = new Date(log.timestamp).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+                  const evDate = new Date(log.timestamp).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' });
+
+                  return (
+                    <div key={log.id} className="flex flex-col lg:flex-row lg:items-center justify-between bg-white p-5 rounded-2xl border border-slate-100 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-900/5 transition-all group gap-4">
+                      <div className="flex items-start gap-4 min-w-0 flex-1">
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 shrink-0">
+                          {eventIcon}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                            <span className="font-mono text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 border border-slate-200 rounded-md">
+                              {log.ip}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                              {log.city}, {log.region}
+                            </span>
+                            <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 border rounded ${badgeColor} font-mono`}>
+                              {log.type}
+                            </span>
+                          </div>
+                          <p className="text-sm font-bold text-slate-900 leading-tight">
+                            {displayDetail}
+                          </p>
+                          <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                            Client Identity: {log.browser} on {log.device}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between lg:justify-end gap-6 border-t lg:border-t-0 pt-4 lg:pt-0 border-slate-100 shrink-0">
+                        <div className="text-left lg:text-right">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Time</span>
+                          <span className="text-xs font-bold text-emerald-600 font-mono">{evTime}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Date</span>
+                          <span className="text-xs font-bold text-slate-700 font-mono">{evDate}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {filteredEvents.length > 50 && (
+                   <div className="text-center text-[10px] uppercase font-bold text-slate-400 tracking-wider py-4 border border-dashed border-slate-200 rounded-2xl">
+                     + {filteredEvents.length - 50} more events matching current timeframe. Expand timeframe to view more history.
+                   </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        );
+      })()}
+
+      {activeTab === 'reports' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm relative">
+             <div className="border-b border-slate-100 pb-5 mb-6">
+                <h3 className="text-xl font-bold text-slate-900 font-display">Flagged Bad Actors & Reports</h3>
+                <p className="text-sm text-slate-500 mt-1">Review flagged communication transcripts submitted by system participants in South Africa.</p>
+             </div>
+
+             {reports.length === 0 ? (
+               <div className="text-center py-16 bg-slate-50/50 rounded-2xl border border-slate-100">
+                  <span className="text-sm font-bold text-slate-500">Perfect Record: No pending reports</span>
+                  <p className="text-xs text-slate-400 mt-1">All community user messages currently comply with secure safety models during auditing.</p>
+               </div>
+             ) : (
+               <div className="space-y-4">
+                 {reports.map((report) => (
+                   <div key={report.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-start justify-between gap-6 hover:shadow-md transition-shadow">
+                      
+                      <div className="space-y-3 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                           <span className="text-[10px] font-mono font-bold bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-100 uppercase">FLAGGED REF: {report.id}</span>
+                           <span className="text-xs text-slate-400 font-medium">{report.timestamp}</span>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs text-slate-700 font-medium">
+                           <div>
+                             <span className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">Reporter</span>
+                             <span className="font-semibold block truncate text-slate-800">{report.reporterEmail}</span>
+                           </div>
+                           <div>
+                             <span className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">Accused Bad Actor</span>
+                             <span className="font-semibold text-rose-700 block truncate">{report.accusedEmail} ({report.accusedName})</span>
+                           </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Report details / reason</span>
+                          <p className="text-sm font-bold text-slate-900">{report.reason}</p>
+                        </div>
+
+                        {report.contextContent && (
+                          <div className="bg-rose-50/20 p-3 rounded-lg border border-rose-100 text-xs max-w-2xl">
+                             <span className="text-[8px] uppercase font-bold text-red-500 block mb-1">Offensive Message context</span>
+                             <p className="text-slate-700 italic font-medium leading-relaxed">&ldquo;{report.contextContent}&rdquo;</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex sm:flex-col gap-2 shrink-0 self-end md:self-auto">
+                        <button 
+                          onClick={() => blockReportActor(report.id, report.accusedEmail)}
+                          className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-sm animate-pulse"
+                        >
+                          Banish Bad Actor
+                        </button>
+                        <button 
+                          onClick={() => resolveReport(report.id)}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl border border-slate-200 transition"
+                        >
+                          Dismiss Flag
+                        </button>
+                      </div>
+
+                   </div>
+                 ))}
+               </div>
+             )}
+          </div>
+        </div>
+      )}
+
+      {/* MASTER AD DELETION & DATABASE PURGE MODAL */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-8">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-rose-900 via-rose-800 to-slate-900 px-6 py-6 text-white relative">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isDeletingBulk) {
+                    setIsDeleteModalOpen(false);
+                    setDeletePasswordInput("");
+                    setDeletePasswordError("");
+                  }
+                }}
+                disabled={isDeletingBulk}
+                className="absolute right-5 top-5 text-white/70 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-rose-600/30 border border-rose-400/30 flex items-center justify-center text-rose-300 shrink-0">
+                  <ShieldAlert className="w-6 h-6 text-rose-300" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold font-display text-white">
+                    Listing Purge & Database Cleanup Control
+                  </h3>
+                  <p className="text-xs text-rose-200/80 mt-0.5">
+                    Authorized bulk deletion tool for directory listings and database records
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+              {/* Step 1: Select Deletion Scope */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">
+                  1. Select Target Deletion Scope
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* Option: Delete ALL */}
+                  <button
+                    type="button"
+                    onClick={() => setDeleteScope("all")}
+                    className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      deleteScope === "all"
+                        ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                        : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Trash2 className="w-4 h-4 text-rose-600" /> Delete ALL Listings
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                        {(adminStats?.total ?? ads.length).toLocaleString()} total
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Wipes the entire directory database clean to allow re-uploading from scratch.
+                    </p>
+                  </button>
+
+                  {/* Option: Delete by Province */}
+                  <button
+                    type="button"
+                    onClick={() => setDeleteScope("province")}
+                    className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      deleteScope === "province"
+                        ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                        : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Globe className="w-4 h-4 text-emerald-600" /> Delete by Province
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200 text-slate-800">
+                        RSA Regions
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Target and wipe all advertisements belonging to a specific South African province.
+                    </p>
+                  </button>
+
+                  {/* Option: Delete by Category */}
+                  <button
+                    type="button"
+                    onClick={() => setDeleteScope("category")}
+                    className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      deleteScope === "category"
+                        ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                        : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Layers className="w-4 h-4 text-indigo-600" /> Delete by Category
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200 text-slate-800">
+                        Trade / Sector
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Remove all listings filed under a specific industry or service category.
+                    </p>
+                  </button>
+
+                  {/* Option: Delete CSV Uploads Only */}
+                  <button
+                    type="button"
+                    onClick={() => setDeleteScope("csv")}
+                    className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      deleteScope === "csv"
+                        ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                        : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Database className="w-4 h-4 text-amber-600" /> CSV / Bot Uploads Only
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-900">
+                        {(adminStats?.csvAndBot ?? ads.filter(a => a.id?.startsWith("csv_") || a.id?.startsWith("csv-") || a.id?.startsWith("ad-agent-")).length).toLocaleString()} ads
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Purges only batch-imported CSV/Bot listings, keeping preference/manual ads safe.
+                    </p>
+                  </button>
+
+                  {/* Option: Delete Unclaimed / Unverified Only */}
+                  <button
+                    type="button"
+                    onClick={() => setDeleteScope("unclaimed")}
+                    className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      deleteScope === "unclaimed"
+                        ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                        : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <ShieldAlert className="w-4 h-4 text-slate-600" /> Unclaimed Ads Only
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200 text-slate-800">
+                        {(adminStats?.unclaimed ?? ads.filter(a => a.isClaimed !== true && !a.verified).length).toLocaleString()} ads
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Purge unverified directory placeholders while preserving paying or claimed businesses.
+                    </p>
+                  </button>
+
+                  {/* Option: Delete Filtered Search Results */}
+                  <button
+                    type="button"
+                    onClick={() => setDeleteScope("filtered")}
+                    className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      deleteScope === "filtered"
+                        ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                        : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Filter className="w-4 h-4 text-purple-600" /> Current Filtered Results
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-100 text-purple-900">
+                        {(adminFilteredTotal ?? getFilteredAds().length).toLocaleString()} ads
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Delete the exact set of listings currently matched by your active search filters.
+                    </p>
+                  </button>
+
+                  {/* Option: Delete Selected Only (if items selected) */}
+                  {selectedAdIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteScope("selected")}
+                      className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between sm:col-span-2 cursor-pointer ${
+                        deleteScope === "selected"
+                          ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                          : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                          <CheckSquare className="w-4 h-4 text-rose-600" /> Individually Selected Listings
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-600 text-white">
+                          {selectedAdIds.length} checked
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Delete only the specific items checked in the table view.
+                      </p>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Province Parameter Dropdown */}
+              {deleteScope === "province" && (
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Choose Target Province:
+                  </label>
+                  <select
+                    value={deleteSelectedProvince}
+                    onChange={(e) => setDeleteSelectedProvince(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  >
+                    {SA_PROVINCES.map((prov) => {
+                      const count =
+                        adminStats?.byProvince?.[prov.slug.toLowerCase()] ??
+                        ads.filter(a => {
+                          const p = (a.province || "").toLowerCase();
+                          const l = (a.location || "").toLowerCase();
+                          return p === prov.slug || p === prov.name.toLowerCase() || l.includes(prov.name.toLowerCase());
+                        }).length;
+                      return (
+                        <option key={prov.slug} value={prov.slug}>
+                          {prov.name} ({count.toLocaleString()} listings in database)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+
+              {/* Category Parameter Dropdown */}
+              {deleteScope === "category" && (
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Choose Target Category:
+                  </label>
+                  <select
+                    value={deleteSelectedCategory}
+                    onChange={(e) => setDeleteSelectedCategory(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  >
+                    {CATEGORIES.map((cat) => {
+                      const count =
+                        adminStats?.byCategory?.[cat.toLowerCase()] ??
+                        ads.filter(a => (a.category || "").toLowerCase() === cat.toLowerCase()).length;
+                      return (
+                        <option key={cat} value={cat}>
+                          {cat} ({count.toLocaleString()} listings in database)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+
+              {/* Target Impact Summary Banner */}
+              {(() => {
+                const targetList = getAdsToPurge();
+                const targetCount = getAdsToPurgeCount();
+                return (
+                  <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-1">
+                        <p className="font-bold text-rose-950">
+                          {targetCount === 0
+                            ? "No advertisements match the chosen deletion filter."
+                            : `Warning: This operation will permanently delete and purge ${targetCount.toLocaleString()} listing(s).`}
+                        </p>
+                        {targetList.length > 0 && (
+                          <div className="text-[11px] text-rose-850 font-medium">
+                            <span className="text-slate-600">Sample of targeted businesses: </span>
+                            <strong>
+                              {targetList.slice(0, 4).map(a => a.title).join(", ")}
+                              {targetCount > 4 ? ` + ${(targetCount - 4).toLocaleString()} more` : ""}
+                            </strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Step 2: Password Security Confirmation */}
+              <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-white flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-amber-400" />
+                    <span>2. Enter Master Authorization Password</span>
+                  </label>
+                  <span className="text-[10px] font-mono text-slate-400">Security Gate</span>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  To prevent unauthorized or accidental directory wipes, enter the master administrator deletion password:
+                </p>
+                <div className="relative">
+                  <input
+                    type={showDeletePassword ? "text" : "password"}
+                    placeholder="••••••••••••"
+                    value={deletePasswordInput}
+                    onChange={(e) => {
+                      setDeletePasswordInput(e.target.value);
+                      if (deletePasswordError) setDeletePasswordError("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleExecuteBulkPurge();
+                      }
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-4 py-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-rose-500/50 pr-16"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowDeletePassword(!showDeletePassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-200 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+                  >
+                    {showDeletePassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+
+                {deletePasswordError && (
+                  <div className="p-3 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 text-xs font-bold flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{deletePasswordError}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isDeletingBulk) {
+                    setIsDeleteModalOpen(false);
+                    setDeletePasswordInput("");
+                    setDeletePasswordError("");
+                  }
+                }}
+                disabled={isDeletingBulk}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancel & Keep Listings
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExecuteBulkPurge}
+                disabled={isDeletingBulk || (deleteScope === "selected" && selectedAdIds.length === 0)}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition shadow-lg shadow-rose-600/30 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+              >
+                {isDeletingBulk ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <span>Purging from Central Storage...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 text-white" />
+                    <span>Authorize & Permanently Delete ({getAdsToPurgeCount().toLocaleString()} Ads)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ad Detail / Edit Modal */}
+      {selectedAd && (
+        <AdDetailModal
+          ad={selectedAd}
+          onClose={() => setSelectedAd(null)}
+        />
+      )}
+        </div>
+      </div>
+    </div>
+  );
+}

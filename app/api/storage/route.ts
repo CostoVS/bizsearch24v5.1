@@ -8,6 +8,7 @@ import { cleanAdsArray } from '@/lib/clean-ad';
 import { resolveAdGeographyAndCategory } from '@/lib/ad-normalizer';
 import { isSubcategoryOf, CATEGORIES_STRUCTURED, stripCategoryNumber } from '@/lib/categories';
 import { writeStorageJsonNonBlocking, readLargeStorageJsonSync, createBotAdBatch } from '@/lib/bot-ad-service';
+import { compareAdsByPostalCodeAndSuburb } from '@/lib/data';
 
 interface CatIndexEntry {
   keys: string[];
@@ -163,9 +164,15 @@ if (globalRef.dbOfflineUntil === undefined) {
  */
 function ensureAdFastIndexed(ad: any): void {
   if (!ad) return;
-  if (ad.isClaimed === false || ad.plan === 'free' || !ad.isPremium) {
-    if (ad.verified === true) ad.verified = false;
-    if (ad.isVerified === true) ad.isVerified = false;
+  if (!ad.verified && !ad.isPremium && !ad.isSponsor) {
+    if (ad.adminApproved !== true) {
+      ad.adminApproved = false;
+      ad.isApproved = false;
+      ad.status = 'pending';
+      ad.approvalStatus = 'pending';
+    }
+    ad.verified = false;
+    ad.isVerified = false;
   }
   if (ad._geoNormalized && ad.province && ad.postalCode !== undefined) {
     if (!ad.categoryCode) {
@@ -208,7 +215,7 @@ function toLitePublicAd(ad: any): any {
       ? ad.description.slice(0, 217) + '...'
       : (ad.description || ''),
     isActive: ad.isActive !== false,
-    adminApproved: ad.adminApproved !== false
+    adminApproved: ad.adminApproved === true
   };
   if (ad.suburb) lite.suburb = ad.suburb;
   if (ad.postalCode) lite.postalCode = ad.postalCode;
@@ -222,7 +229,7 @@ function toLitePublicAd(ad: any): any {
   if (ad.website) lite.website = ad.website;
   if (ad.tradingHours) lite.tradingHours = ad.tradingHours;
   if (ad.servicesOffered) lite.servicesOffered = ad.servicesOffered;
-  if (ad.verified) lite.verified = true;
+  if (ad.verified === true || ad.isVerified === true) lite.verified = true;
   if (ad.isPremium) {
     lite.isPremium = true;
     lite.plan = ad.plan || 'PREMIUM';
@@ -999,14 +1006,14 @@ function buildIndexedDatasetSync(baseData: any): IndexedDataset {
       }
     }
 
-    const isAdminAppr = a.adminApproved === true || a.verified === true || a.isPremium === true || a.isSponsor === true;
+    const isAdminAppr = a.adminApproved === true;
     if (isAdminAppr) {
       approved++;
     } else {
       pendingApproval++;
     }
 
-    if (a.verified === true) verified++;
+    if (a.verified === true || a.isVerified === true) verified++;
     if (a.isSponsor) {
       sponsor++;
     } else if (a.isPremium) {
@@ -1056,7 +1063,10 @@ function buildIndexedDatasetSync(baseData: any): IndexedDataset {
       }
     }
     if (allFeaturedAds.length > 1) {
-      allFeaturedAds.sort((a, b) => adPriorityScore(b) - adPriorityScore(a));
+      allFeaturedAds.sort(compareAdsByPostalCodeAndSuburb);
+    }
+    if (allFreeAds.length > 1) {
+      allFreeAds.sort(compareAdsByPostalCodeAndSuburb);
     }
     finalActiveAds = allFeaturedAds.length > 0 ? allFeaturedAds.concat(allFreeAds) : allFreeAds;
   }
@@ -1198,7 +1208,7 @@ export async function GET(req: Request) {
     const indexed = getIndexedDataset(baseData);
     const adminStats = indexed.adminStats;
     const totalAdsCount = indexed.allActiveAds.length;
-    const verifiedCount = adminStats.approved;
+    const verifiedCount = adminStats.verified;
 
     // 1. Ultra-fast O(1) statsOnly endpoint for SearchBar, Footer, Sitemap, and Category counters
     if (statsOnly) {
@@ -1578,14 +1588,13 @@ export async function GET(req: Request) {
       });
     }
 
+    // Sort all query results according to South African priority, postal code, suburb, and title
+    if (filtered.length > 1) {
+      filtered.sort(compareAdsByPostalCodeAndSuburb);
+    }
+
     const filteredTotal = filtered.length;
-    const filteredVerified = (filtered === indexed.allActiveAds || filtered === indexed.allNonDeletedAds)
-      ? verifiedCount
-      : (filtered === indexed.allFreeAds)
-        ? adminStats.verified
-        : (adminStats.active > 0 && adminStats.approved === adminStats.active)
-          ? filteredTotal
-          : filtered.reduce((acc: number, a: any) => acc + (a && (a.verified === true || a.adminApproved === true || a.isPremium === true || a.isSponsor === true) ? 1 : 0), 0);
+    const filteredVerified = filtered.reduce((acc: number, a: any) => acc + (a && (a.verified === true || a.isVerified === true) ? 1 : 0), 0);
 
     // Handle Pagination slice (stream in fast 250-ad lite chunks when noLimit is active on huge result sets so V8 & mobile browsers load in <10ms)
     let adsToReturn = filtered;

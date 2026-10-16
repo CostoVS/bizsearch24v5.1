@@ -647,7 +647,7 @@ function DirectoryContent() {
           {/* Display Controls & Stats */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
             <span className="text-xs font-bold text-slate-700">
-              Showing <span className="text-emerald-700 font-extrabold">{totalMatchingAds.toLocaleString()}</span> verified listing{totalMatchingAds === 1 ? '' : 's'}
+              Showing <span className="text-emerald-700 font-extrabold">{totalMatchingAds.toLocaleString()}</span> listing{totalMatchingAds === 1 ? '' : 's'}
               {hasFilters && <span className="text-slate-500 font-normal"> matching your search criteria</span>}
             </span>
 

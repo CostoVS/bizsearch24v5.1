@@ -409,7 +409,7 @@ export function getVerifiedAdsCount(): number {
     }
   }
   const ads = getStoredAds();
-  return ads.filter(a => a && (a.verified === true || a.adminApproved === true)).length;
+  return ads.filter(a => a && (a.verified === true || a.isVerified === true)).length;
 }
 
 // Unified global advertisements client register with localStorage persistence
@@ -883,31 +883,65 @@ export async function purgeStoredAdsBulk(idsToDelete: string[]): Promise<any[]> 
 
 
 
-export function sortAdsWithPositions(ads: any[]): any[] {
-  const topAds = ads.filter(a => a.fixedPosition === 'top');
-  const middleAds = ads.filter(a => a.fixedPosition === 'middle');
-  const bottomAds = ads.filter(a => a.fixedPosition === 'bottom');
-  const standardAds = ads.filter(a => !['top', 'middle', 'bottom'].includes(a.fixedPosition));
+/**
+ * Standard South African Directory Ad Comparator
+ * 1. Priority Tiers (Sponsor -> Spotlight -> Banner -> Video -> Premium -> Verified -> Free)
+ * 2. Postal Code (numeric ascending: 0001 -> 9999)
+ * 3. Suburb (alphabetical A-Z)
+ * 4. Business Title / Name (alphabetical A-Z)
+ */
+export function compareAdsByPostalCodeAndSuburb(a: any, b: any): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
 
-  const sortByPriority = (arr: any[]) => {
-    return [...arr].sort((a, b) => {
-      const score = (item: any) => {
-        if (item.isSponsor) return 100;
-        if (item.isSpotlight) return 90;
-        if (item.isBannerPlacement) return 80;
-        if (item.isVideoPromo) return 70;
-        if (item.isPremium) return 60;
-        if (item.verified) return 40; // Verified Free Ads
-        return 10; // Not Verified Free Ads
-      };
-      return score(b) - score(a);
-    });
+  // 1. Priority score
+  const score = (item: any) => {
+    if (item.isSponsor) return 100;
+    if (item.isSpotlight) return 90;
+    if (item.isBannerPlacement) return 80;
+    if (item.isVideoPromo) return 70;
+    if (item.isPremium) return 60;
+    if (item.verified === true || item.isVerified === true) return 40;
+    return 10;
   };
+  const diff = score(b) - score(a);
+  if (diff !== 0) return diff;
 
-  const sortedStandard = sortByPriority(standardAds);
-  const sortedTop = sortByPriority(topAds);
-  const sortedMiddle = sortByPriority(middleAds);
-  const sortedBottom = sortByPriority(bottomAds);
+  // 2. Postal Code (numeric ascending: e.g. 4001, 4126, 4170)
+  const codeA = parseInt(String(a.postalCode || '').replace(/\D/g, ''), 10);
+  const codeB = parseInt(String(b.postalCode || '').replace(/\D/g, ''), 10);
+  const validCodeA = !isNaN(codeA) && codeA > 0;
+  const validCodeB = !isNaN(codeB) && codeB > 0;
+  if (validCodeA && validCodeB && codeA !== codeB) {
+    return codeA - codeB;
+  }
+  if (validCodeA && !validCodeB) return -1;
+  if (!validCodeA && validCodeB) return 1;
+
+  // 3. Suburb (alphabetical A-Z)
+  const subA = String(a.suburb || a.town || a.location || a.city || '').toLowerCase().trim();
+  const subB = String(b.suburb || b.town || b.location || b.city || '').toLowerCase().trim();
+  const subComp = subA.localeCompare(subB);
+  if (subComp !== 0) return subComp;
+
+  // 4. Title / Business Name (alphabetical A-Z)
+  const titleA = String(a.title || a.name || '').toLowerCase().trim();
+  const titleB = String(b.title || b.name || '').toLowerCase().trim();
+  return titleA.localeCompare(titleB);
+}
+
+export function sortAdsWithPositions(ads: any[]): any[] {
+  if (!Array.isArray(ads) || ads.length <= 1) return ads || [];
+  const topAds = ads.filter(a => a?.fixedPosition === 'top');
+  const middleAds = ads.filter(a => a?.fixedPosition === 'middle');
+  const bottomAds = ads.filter(a => a?.fixedPosition === 'bottom');
+  const standardAds = ads.filter(a => !['top', 'middle', 'bottom'].includes(a?.fixedPosition));
+
+  const sortedStandard = [...standardAds].sort(compareAdsByPostalCodeAndSuburb);
+  const sortedTop = [...topAds].sort(compareAdsByPostalCodeAndSuburb);
+  const sortedMiddle = [...middleAds].sort(compareAdsByPostalCodeAndSuburb);
+  const sortedBottom = [...bottomAds].sort(compareAdsByPostalCodeAndSuburb);
 
   const halfStandardLen = Math.floor(sortedStandard.length / 2);
   const standardFirstHalf = sortedStandard.slice(0, halfStandardLen);

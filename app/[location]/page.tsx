@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { PROVINCES, MOCK_ADS } from "@/lib/data";
+import { PROVINCES, MOCK_ADS, compareAdsByPostalCodeAndSuburb } from "@/lib/data";
 import { KZN_SUBURBS, GAUTENG_SUBURBS, WESTERN_CAPE_SUBURBS, EASTERN_CAPE_SUBURBS, FREE_STATE_SUBURBS, LIMPOPO_SUBURBS, MPUMALANGA_SUBURBS, NORTH_WEST_SUBURBS, NORTHERN_CAPE_SUBURBS } from "@/lib/locations";
 import { BadgeCheck, MapPin } from "lucide-react";
 import Link from "next/link";
@@ -287,6 +287,10 @@ export default async function LocationPage({ params }: Props) {
     }
     totalLocationCount = adsForLocation.length;
     initialAdsSlice = adsForLocation.slice(0, 48);
+  }
+
+  if (initialAdsSlice.length > 1) {
+    initialAdsSlice.sort(compareAdsByPostalCodeAndSuburb);
   }
 
   return (

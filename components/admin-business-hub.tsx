@@ -56,7 +56,9 @@ interface BusinessRecord {
   description?: string;
   source?: string;
   isApproved?: boolean;
+  adminApproved?: boolean;
   verified?: boolean;
+  isVerified?: boolean;
   status?: string;
   facebook?: string;
   instagram?: string;
@@ -132,6 +134,39 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   const [sendStatus, setSendStatus] = useState<{ success?: boolean; message?: string } | null>(null);
   const [broadcastLogs, setBroadcastLogs] = useState<any[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+  const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleTestSmtp = async () => {
+    setIsTestingSmtp(true);
+    setSmtpTestResult(null);
+    try {
+      const res = await fetch("/api/admin/test-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: "mailsearchbiz@gmail.com" })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSmtpTestResult({
+          success: true,
+          message: data.message || "Test email dispatched successfully! SMTP connection verified."
+        });
+      } else {
+        setSmtpTestResult({
+          success: false,
+          message: data.error || data.message || "SMTP test failed."
+        });
+      }
+    } catch (err: any) {
+      setSmtpTestResult({
+        success: false,
+        message: err.message || "Failed to reach test email API."
+      });
+    } finally {
+      setIsTestingSmtp(false);
+    }
+  };
 
   // Fetch Broadcast Logs
   const loadLogs = async () => {
@@ -334,7 +369,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
 
   const totalIndexed = ads.length;
   const totalWithEmail = ads.filter(b => b.email && b.email.includes("@")).length;
-  const totalVerified = ads.filter(b => b.verified || b.isApproved).length;
+  const totalVerified = ads.filter(b => b.verified === true || b.isVerified === true).length;
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
@@ -360,22 +395,54 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
           </div>
 
           <div className="flex flex-wrap md:flex-col gap-3 shrink-0">
-            {onRefreshAds && (
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={onRefreshAds}
-                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-2 transition border border-white/10 cursor-pointer"
+                disabled={isTestingSmtp}
+                onClick={handleTestSmtp}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 transition border border-emerald-500/40 shadow-sm cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Refresh Data</span>
+                <Mail className="w-3.5 h-3.5" />
+                <span>{isTestingSmtp ? "Testing SMTP..." : "Test SMTP Live"}</span>
               </button>
-            )}
+              {onRefreshAds && (
+                <button
+                  type="button"
+                  onClick={onRefreshAds}
+                  className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-2 transition border border-white/10 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh Data</span>
+                </button>
+              )}
+            </div>
             <div className="px-4 py-2 rounded-xl bg-emerald-900/60 border border-emerald-600/30 text-emerald-200 text-xs font-semibold flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>Official Sender: {SENDER_EMAIL}</span>
             </div>
           </div>
         </div>
+
+        {/* Live SMTP Test Alert Banner */}
+        {smtpTestResult && (
+          <div className={`mt-5 p-3.5 rounded-2xl border text-xs font-medium flex items-center justify-between gap-3 ${
+            smtpTestResult.success 
+              ? "bg-emerald-900/90 border-emerald-500 text-emerald-100" 
+              : "bg-rose-950/90 border-rose-500 text-rose-100"
+          }`}>
+            <div className="flex items-center gap-2">
+              {smtpTestResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}
+              <span>{smtpTestResult.message}</span>
+            </div>
+            <button 
+              type="button"
+              onClick={() => setSmtpTestResult(null)}
+              className="text-[10px] uppercase font-bold underline opacity-80 hover:opacity-100 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Quick KPI Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-white/10 text-xs">
@@ -388,7 +455,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
             <span className="text-xl sm:text-2xl font-black text-emerald-300">{totalWithEmail.toLocaleString()}</span>
           </div>
           <div className="bg-white/5 rounded-2xl p-3 border border-white/10">
-            <span className="text-blue-400 block text-[10px] font-bold uppercase tracking-wider">Verified / Approved</span>
+            <span className="text-blue-400 block text-[10px] font-bold uppercase tracking-wider">Verified Businesses</span>
             <span className="text-xl sm:text-2xl font-black text-blue-300">{totalVerified.toLocaleString()}</span>
           </div>
           <div className="bg-white/5 rounded-2xl p-3 border border-white/10">

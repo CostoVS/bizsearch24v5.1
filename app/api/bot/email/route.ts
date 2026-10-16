@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
+import { sendEmail, getSmtpConfig } from '@/lib/email-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,27 +78,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email body or text content is required.' }, { status: 400 });
     }
 
-    const host = smtpConfig?.host || (process.env.SMTP_HOST || '127.0.0.1').trim();
-    const port = Number(smtpConfig?.port) || Number(process.env.SMTP_PORT) || 587;
-    const user = smtpConfig?.user || (process.env.SMTP_USER || 'ai@searchbiz.co.za').trim();
-    const rawPass = smtpConfig?.pass || process.env.SMTP_PASS || 'HermesAI@2026!';
-    const cleanPass = rawPass.replace(/\s+/g, '');
-
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      tls: {
-        rejectUnauthorized: false
-      },
-      auth: {
-        user,
-        pass: cleanPass,
-      }
-    });
-
-    const sender = from || `"SearchBiz AI Executive" <${user}>`;
-
+    const sysConfig = getSmtpConfig();
     const adminEmail = (process.env.ADMIN_EMAIL || 'admin@searchbiz.co.za').trim();
     const recipientTrimmed = to.trim();
     const bccList: string[] = [];
@@ -114,39 +94,46 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const mailOptions: any = {
+    const sender = from || `"SearchBiz AI Executive" <${sysConfig.fromEmail || sysConfig.user}>`;
+
+    const htmlContent = html || `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b;">
+        <div style="border-bottom: 2px solid #059669; padding-bottom: 12px; margin-bottom: 16px;">
+          <h2 style="color: #064e3b; margin: 0; font-size: 20px;">SearchBiz Notification</h2>
+        </div>
+        <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
+${emailContent}
+        </div>
+        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+        <p style="font-size: 11px; color: #94a3b8; margin: 0; text-align: center;">
+          Sent automatically via SearchBiz AI Assistant &bull; searchbiz.co.za
+        </p>
+      </div>
+    `;
+
+    const sendRes = await sendEmail({
       from: sender,
       to: recipientTrimmed,
       bcc: bccList.length > 0 ? bccList : undefined,
-      replyTo: replyTo || `"SearchBiz Executive AI" <${user}>, <${adminEmail}>`,
+      replyTo: replyTo || sysConfig.user,
       subject: subject.trim(),
       text: emailContent,
-      html: html || `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b;">
-          <div style="border-bottom: 2px solid #059669; padding-bottom: 12px; margin-bottom: 16px;">
-            <h2 style="color: #064e3b; margin: 0; font-size: 20px;">SearchBiz Notification</h2>
-          </div>
-          <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
-${emailContent}
-          </div>
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-          <p style="font-size: 11px; color: #94a3b8; margin: 0; text-align: center;">
-            Sent automatically via SearchBiz AI Assistant &bull; searchbiz.co.za
-          </p>
-        </div>
-      `,
-      ...(attachments && Array.isArray(attachments) ? { attachments } : {})
-    };
+      html: htmlContent,
+      attachments: attachments && Array.isArray(attachments) ? attachments : undefined
+    });
 
-    const info = await transporter.sendMail(mailOptions);
+    if (!sendRes.success) {
+      return NextResponse.json({ error: sendRes.error || 'Failed to dispatch email.' }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
-      messageId: info.messageId,
-      accepted: info.accepted,
-      response: info.response,
-      message: `Email successfully dispatched to ${to}`
+      message: `Email dispatched successfully to ${recipientTrimmed}`,
+      messageId: sendRes.messageId,
+      recipient: recipientTrimmed,
+      timestamp: new Date().toISOString()
     });
+
   } catch (error: any) {
     console.error('[BotEmail] Send error:', error);
     return NextResponse.json({

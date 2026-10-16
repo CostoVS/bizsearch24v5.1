@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
+import { sendEmail, getSmtpConfig } from '@/lib/email-service';
 import fs from 'fs';
 import path from 'path';
 
@@ -109,29 +109,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No valid recipient email addresses found in the selected target group.' }, { status: 400 });
     }
 
-    // Setup Nodemailer transporter
-    const host = (process.env.SMTP_HOST || '127.0.0.1').trim();
-    const port = Number(process.env.SMTP_PORT) || 587;
-    const user = (process.env.SMTP_USER || SENDER_EMAIL).trim();
-    const rawPass = process.env.SMTP_PASS || '';
-
-    let transporter: nodemailer.Transporter | null = null;
-    let canSendLive = Boolean(rawPass && host !== '127.0.0.1');
-
-    if (canSendLive) {
-      try {
-        transporter = nodemailer.createTransport({
-          host,
-          port,
-          secure: port === 465,
-          tls: { rejectUnauthorized: false },
-          auth: { user, pass: rawPass.replace(/\s+/g, '') }
-        });
-      } catch (err) {
-        console.warn('[BroadcastEmail] Transporter creation warning:', err);
-        transporter = null;
-      }
-    }
+    const smtpConfig = getSmtpConfig();
+    const effectiveSender = SENDER_EMAIL || smtpConfig.fromEmail || smtpConfig.user;
 
     let sentCount = 0;
     const sampleRecipients: string[] = [];
@@ -162,35 +141,33 @@ export async function POST(req: NextRequest) {
         .replace(/\{company_name\}/gi, rec.businessName || 'Your Business')
         .replace(/\{city\}/gi, rec.city || 'South Africa');
 
-      if (transporter) {
-        try {
-          await transporter.sendMail({
-            from: `"SearchBiz South Africa" <${SENDER_EMAIL}>`,
-            to: cleanEmail,
-            replyTo: SENDER_EMAIL,
-            subject: personalizedSubject,
-            text: personalizedBody,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 14px; padding: 28px; color: #0f172a; background: #ffffff;">
-                <div style="border-bottom: 2px solid #059669; padding-bottom: 14px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
-                  <div>
-                    <h2 style="color: #064e3b; margin: 0; font-size: 22px; font-weight: 800;">SearchBiz<span style="color: #10b981;">.co.za</span></h2>
-                    <p style="font-size: 11px; color: #64748b; margin: 2px 0 0 0; text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em;">National South African Business Registry</p>
-                  </div>
-                </div>
-                <div style="font-size: 14px; line-height: 1.7; color: #334155; white-space: pre-wrap;">
+      const htmlBody = `
+        <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 14px; padding: 28px; color: #0f172a; background: #ffffff;">
+          <div style="border-bottom: 2px solid #059669; padding-bottom: 14px; margin-bottom: 20px;">
+            <h2 style="color: #064e3b; margin: 0; font-size: 22px; font-weight: 800;">SearchBiz<span style="color: #10b981;">.co.za</span></h2>
+            <p style="font-size: 11px; color: #64748b; margin: 2px 0 0 0; text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em;">National South African Business Registry</p>
+          </div>
+          <div style="font-size: 14px; line-height: 1.7; color: #334155; white-space: pre-wrap;">
 ${personalizedBody}
-                </div>
-                <div style="margin-top: 28px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center;">
-                  <p style="margin: 0;">Dispatched from <strong>${SENDER_EMAIL}</strong> &bull; SearchBiz.co.za South Africa</p>
-                  <p style="margin: 4px 0 0 0;">POPIA &amp; Direct Marketing Compliance &bull; Official Administrator Communications</p>
-                </div>
-              </div>
-            `
-          });
-        } catch (mailErr: any) {
-          console.warn(`[BroadcastEmail] Direct dispatch failed for ${cleanEmail}:`, mailErr?.message);
-        }
+          </div>
+          <div style="margin-top: 28px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center;">
+            <p style="margin: 0;">Dispatched from <strong>${effectiveSender}</strong> &bull; SearchBiz.co.za South Africa</p>
+            <p style="margin: 4px 0 0 0;">POPIA &amp; Direct Marketing Compliance &bull; Official Administrator Communications</p>
+          </div>
+        </div>
+      `;
+
+      try {
+        await sendEmail({
+          from: `"SearchBiz South Africa" <${effectiveSender}>`,
+          to: cleanEmail,
+          replyTo: effectiveSender,
+          subject: personalizedSubject,
+          text: personalizedBody,
+          html: htmlBody,
+        });
+      } catch (mailErr: any) {
+        console.warn(`[BroadcastEmail] Direct dispatch failed for ${cleanEmail}:`, mailErr?.message);
       }
 
       sentCount++;

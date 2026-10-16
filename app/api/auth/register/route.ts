@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserByEmail, saveUser, getDeterministicSecretKey } from '@/lib/auth-service';
 import { saveOtp, generateOtp } from '@/lib/otp-service';
 import { readServerDb, writeServerDb } from '@/lib/bot-ad-service';
-import nodemailer from 'nodemailer';
+import { sendOtpEmail, sendEmail } from '@/lib/email-service';
 import fs from 'fs';
 import path from 'path';
 
@@ -171,51 +171,14 @@ export async function POST(req: Request) {
 
     console.log(`[EMAIL OTP] Generated verification code ${otpCode} for ${normalizedEmail}`);
 
-    // Send Email Verification OTP
+    // Send Email Verification OTP via centralized email service
     try {
-      const smtpHost = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
-      const smtpPort = Number(process.env.SMTP_PORT) || 465;
-      const smtpUser = (process.env.SMTP_USER || "mailsearchbiz@gmail.com").trim();
-      const rawSmtpPass = process.env.SMTP_PASS || "ygrv hhqi hdhi bxwt";
-      const cleanSmtpPass = rawSmtpPass.replace(/\s+/g, "");
-
-      const transporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpPort === 465,
-        auth: {
-          user: smtpUser,
-          pass: cleanSmtpPass,
-        }
-      });
-
-      const mailOptions = {
-        from: `"SearchBiz Verification" <${smtpUser}>`,
-        to: normalizedEmail,
-        replyTo: smtpUser,
-        subject: `🔑 [SearchBiz] Your Email Verification Code: ${otpCode}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 500px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b; margin: 0 auto;">
-            <h2 style="color: #052e22; font-size: 20px; border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-top: 0;">Email Verification Required</h2>
-            <p>Hello,</p>
-            <p>Thank you for registering on SearchBiz.co.za! Please verify your email address to secure your account and complete your 2-step verification setup.</p>
-            
-            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; text-align: center; margin: 24px 0;">
-              <p style="margin: 0; font-size: 14px; color: #15803d; font-weight: bold;">YOUR 6-DIGIT VERIFICATION CODE</p>
-              <h1 style="margin: 10px 0 0 0; font-size: 36px; letter-spacing: 6px; color: #047857; font-family: monospace;">${otpCode}</h1>
-            </div>
-            
-            <p style="font-size: 12px; color: #64748b; line-height: 1.5;">
-              This code is valid for 10 minutes. If you did not register for an account on SearchBiz.co.za, please ignore this email.
-            </p>
-            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-            <p style="font-size: 11px; text-align: center; color: #94a3b8; margin: 0;">&copy; 2026 SearchBiz.co.za. All rights reserved.</p>
-          </div>
-        `
-      };
-
-      await transporter.sendMail(mailOptions);
-      console.log(`Email OTP successfully sent to ${normalizedEmail}`);
+      const emailSent = await sendOtpEmail(normalizedEmail, otpCode, 'register');
+      if (emailSent) {
+        console.log(`Email OTP successfully sent to ${normalizedEmail}`);
+      } else {
+        console.warn(`Email OTP dispatch returned false for ${normalizedEmail}`);
+      }
     } catch (nodemailerErr) {
       console.warn("Nodemailer OTP relay warning (offline fallback or unconfigured SMTP):", nodemailerErr);
     }
@@ -266,95 +229,77 @@ export async function POST(req: Request) {
 
       // Relay submission details securely to business owner email
       try {
-        const nodemailer = require("nodemailer");
-        const rawSmtpPass = process.env.SMTP_PASS || "";
-        const cleanSmtpPass = rawSmtpPass.replace(/\s+/g, "");
+        const mailHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b;">
+            <h2 style="color: #052e22; font-size: 20px; border-bottom: 2px solid #052e22; padding-bottom: 12px; margin-top: 0;">New Premium Registration Application (${plan})</h2>
+            <p>Hello SearchBiz Admin,</p>
+            <p>A new user has signed up for the <strong>${plan} Plan</strong> and submitted verification documents.</p>
+            
+            <table style="width: 100%; border-collapse: collapse; margin: 18px 0;">
+              <tr style="background-color: #f8fafc;">
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">User Full Name:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${fullName}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">User Email:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${normalizedEmail}</td>
+              </tr>
+              <tr style="background-color: #f8fafc;">
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">WhatsApp:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${whatsapp || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Phone:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${phone || 'N/A'}</td>
+              </tr>
+              <tr style="background-color: #f8fafc;">
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Business Name:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${companyName}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Business Address:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${businessAddress || 'N/A'}</td>
+              </tr>
+              <tr style="background-color: #f8fafc;">
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Province:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${province}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Category:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${businessCategory}</td>
+              </tr>
+              <tr style="background-color: #f8fafc;">
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">ID Number:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0;">${idNumber}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">CIPC Proof:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${cipcDoc.name || 'Attached CIPC Doc'}</td>
+              </tr>
+              <tr style="background-color: #f8fafc;">
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">SARS Copy:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${sarsDoc.name || 'Attached SARS Doc'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Bank Statement:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${bankDoc.name || 'Attached Bank Doc'}</td>
+              </tr>
+              <tr style="background-color: #f8fafc;">
+                <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Identification ID:</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${idDoc.name || 'Attached ID Doc'}</td>
+              </tr>
+            </table>
+            
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 15px; text-align: center; margin-top: 24px;">
+              <p style="margin: 0; font-weight: bold; color: #14532d;">Go to the System Dashboard -> Premium Submissions tab to review and approve this user account.</p>
+            </div>
+          </div>
+        `;
 
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST || "smtp.gmail.com",
-          port: parseInt(process.env.SMTP_PORT || "587"),
-          secure: process.env.SMTP_SECURE === "true",
-          auth: {
-            user: process.env.SMTP_USER || "mailsearchbiz@gmail.com",
-            pass: cleanSmtpPass,
-          }
-        });
-
-        const mailOptions = {
-          from: `"SearchBiz System" <${process.env.SMTP_USER || "mailsearchbiz@gmail.com"}>`,
+        sendEmail({
           to: "mailsearchbiz@gmail.com",
           subject: `🚨 [PREMIUM SIGNUP SPECIAL] New Verification Submission (${plan}) from ${normalizedEmail}`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b;">
-              <h2 style="color: #052e22; font-size: 20px; border-b: 2px solid #052e22; padding-bottom: 12px; margin-top: 0;">New Premium Registration Application (${plan})</h2>
-              <p>Hello SearchBiz Admin,</p>
-              <p>A new user has signed up for the <strong>${plan} Plan</strong> and submitted verification documents.</p>
-              
-              <table style="width: 100%; border-collapse: collapse; margin: 18px 0;">
-                <tr style="background-color: #f8fafc;">
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">User Full Name:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${fullName}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">User Email:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${normalizedEmail}</td>
-                </tr>
-                <tr style="background-color: #f8fafc;">
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">WhatsApp:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${whatsapp || 'N/A'}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Phone:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${phone || 'N/A'}</td>
-                </tr>
-                <tr style="background-color: #f8fafc;">
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Business Name:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${companyName}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Business Address:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${businessAddress || 'N/A'}</td>
-                </tr>
-                <tr style="background-color: #f8fafc;">
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Province:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${province}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Category:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${businessCategory}</td>
-                </tr>
-                <tr style="background-color: #f8fafc;">
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">ID Number:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0;">${idNumber}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">CIPC Proof:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${cipcDoc.name || 'Attached CIPC Doc'}</td>
-                </tr>
-                <tr style="background-color: #f8fafc;">
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">SARS Copy:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${sarsDoc.name || 'Attached SARS Doc'}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Bank Statement:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${bankDoc.name || 'Attached Bank Doc'}</td>
-                </tr>
-                <tr style="background-color: #f8fafc;">
-                  <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Identification ID:</td>
-                  <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${idDoc.name || 'Attached ID Doc'}</td>
-                </tr>
-              </table>
-              
-              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 15px; text-align: center; margin-top: 24px;">
-                <p style="margin: 0; font-weight: bold; color: #14532d;">Go to the System Dashboard -> Premium Submissions tab to review and approve this user account.</p>
-              </div>
-            </div>
-          `
-        };
-
-        // We run in background, any SMTP error is caught rather than breaking the login
-        transporter.sendMail(mailOptions).then(() => {
-          console.log(`Email notification successfully relayed for premium user ${normalizedEmail}`);
+          html: mailHtml,
         }).catch((err: any) => {
           console.warn("SMTP credentials not fully set or error occurred during relay; logged to console:", err);
         });

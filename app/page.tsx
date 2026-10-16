@@ -154,7 +154,7 @@ export default function HomePage() {
                   <div className="text-3xl sm:text-4xl font-display font-bold text-emerald-400 mb-1">
                     {totalVerifiedCount.toLocaleString()}
                   </div>
-                  <div className="text-[10px] sm:text-xs tracking-widest text-slate-400 uppercase font-semibold">Verified & Approved</div>
+                  <div className="text-[10px] sm:text-xs tracking-widest text-slate-400 uppercase font-semibold">Verified Businesses</div>
                 </div>
                 <div className="hidden sm:block w-px h-12 bg-emerald-950/40"></div>
                 <div>

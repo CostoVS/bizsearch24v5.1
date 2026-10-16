@@ -143,7 +143,7 @@ export default function LocationListings({ ads: propAds, properName, initialTota
           {/* Display Controls & Stats */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
             <span className="text-xs font-bold text-slate-700">
-              Showing <span className="text-emerald-700 font-extrabold">{totalLocationCount.toLocaleString()}</span> verified listing{totalLocationCount === 1 ? '' : 's'} in <span className="text-slate-900 font-extrabold capitalize">{properName}</span>
+              Showing <span className="text-emerald-700 font-extrabold">{totalLocationCount.toLocaleString()}</span> listing{totalLocationCount === 1 ? '' : 's'} in <span className="text-slate-900 font-extrabold capitalize">{properName}</span>
             </span>
 
             <div className="flex items-center gap-1.5 text-xs">

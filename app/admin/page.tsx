@@ -2898,18 +2898,16 @@ export default function AdminDashboard() {
                             const values = rawRows[i];
                             if (!values || values.length === 0 || values.every(v => !v)) continue;
                             const rec = parseCsvRowToRecord(headers, values, csvDefaultCategory, csvDefaultProvince, file.name);
-                            const primaryPhone = (rec.phone || rec.telephone || rec.whatsapp || "").replace(/[\s\-\(\)\.]/g, '');
-                            const hasAddress = Boolean((rec.address || rec.suburb || rec.city || "").trim());
-                            if (!rec.title || !hasAddress || !primaryPhone || primaryPhone === "·" || primaryPhone === "" || primaryPhone.length < 7) {
-                              skippedNoPhone++;
-                              continue;
-                            }
+                            
+                            const finalTitle = (rec.title || "").trim() || "Unnamed Business";
+                            const finalPhone = (rec.phone || rec.telephone || rec.whatsapp || "").trim() || "Available on Request";
+                            const finalAddress = (rec.address || "").trim() || [rec.suburb, rec.city, rec.postalCode, rec.province].filter(Boolean).join(", ") || "South Africa";
 
-                            const nT = normTitle(rec.title);
-                            const nP = normPhone(primaryPhone);
-                            const nA = normAddr(rec.address || `${rec.suburb || ''} ${rec.city || ''}`);
+                            const nT = normTitle(finalTitle);
+                            const nP = normPhone(finalPhone);
+                            const nA = normAddr(finalAddress);
 
-                            if (nT && nP && nA) {
+                            if (nT && nP && nA && nP !== "availablerequest") {
                               const tripletKey = `${nT}|${nP}|${nA}`;
                               if (existingDbKeys.has(tripletKey) || seenCsvKeys.has(tripletKey)) {
                                 skippedDuplicates++;
@@ -2920,6 +2918,9 @@ export default function AdminDashboard() {
 
                             parsedRows.push({
                               ...rec,
+                              title: finalTitle,
+                              phone: finalPhone,
+                              address: finalAddress,
                               rawCsvProvince: provHeaderIdx >= 0 ? (values[provHeaderIdx] || "").trim() : ""
                             });
                           }

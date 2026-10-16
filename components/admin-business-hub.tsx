@@ -29,7 +29,8 @@ import {
   Layers,
   SendHorizontal,
   History,
-  Copy
+  Copy,
+  SlidersHorizontal
 } from "lucide-react";
 import { SA_PROVINCES, getPostalCodeForTown } from "@/lib/locations";
 import { CATEGORIES } from "@/lib/categories";
@@ -112,8 +113,23 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   const [selectedProvince, setSelectedProvince] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [filterHasEmailOnly, setFilterHasEmailOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<"name_asc" | "name_desc" | "category" | "province" | "postal" | "email_first">("name_asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 20;
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+
+  // Column / Detail Visibility Selector state
+  const [visibleColumns, setVisibleColumns] = useState({
+    email: true,
+    website: true,
+    whatsapp: true,
+    phone: true,
+    telephone: true,
+    suburbPostal: true,
+    services: true,
+    hours: false,
+    description: false
+  });
+  const [showColumnSelector, setShowColumnSelector] = useState(false);
 
   // Selected Business for Detail Modal
   const [activeBusinessModal, setActiveBusinessModal] = useState<BusinessRecord | null>(null);
@@ -190,7 +206,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
     loadLogs();
   }, []);
 
-  // Filtered Businesses List
+  // Filtered & Sorted Businesses List
   const filteredBusinesses = useMemo(() => {
     let result = ads || [];
 
@@ -212,6 +228,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
         (b.title || "").toLowerCase().includes(term) ||
         (b.email || "").toLowerCase().includes(term) ||
         (b.phone || "").toLowerCase().includes(term) ||
+        (b.telephone || "").toLowerCase().includes(term) ||
         (b.whatsapp || "").toLowerCase().includes(term) ||
         (b.city || "").toLowerCase().includes(term) ||
         (b.suburb || "").toLowerCase().includes(term) ||
@@ -222,8 +239,35 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
       );
     }
 
+    // Sorting
+    result = [...result].sort((a, b) => {
+      if (sortBy === "name_asc") {
+        return (a.title || "").localeCompare(b.title || "");
+      }
+      if (sortBy === "name_desc") {
+        return (b.title || "").localeCompare(a.title || "");
+      }
+      if (sortBy === "category") {
+        return (a.category || "").localeCompare(b.category || "");
+      }
+      if (sortBy === "province") {
+        return (a.province || "").localeCompare(b.province || "");
+      }
+      if (sortBy === "postal") {
+        return (a.postalCode || "").localeCompare(b.postalCode || "");
+      }
+      if (sortBy === "email_first") {
+        const aHas = Boolean(a.email && a.email.includes("@"));
+        const bHas = Boolean(b.email && b.email.includes("@"));
+        if (aHas && !bHas) return -1;
+        if (!aHas && bHas) return 1;
+        return (a.title || "").localeCompare(b.title || "");
+      }
+      return 0;
+    });
+
     return result;
-  }, [ads, searchTerm, selectedProvince, selectedCategory, filterHasEmailOnly]);
+  }, [ads, searchTerm, selectedProvince, selectedCategory, filterHasEmailOnly, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filteredBusinesses.length / itemsPerPage));
   const safePage = Math.min(Math.max(1, currentPage), totalPages);
@@ -381,7 +425,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
               <Building2 className="w-3.5 h-3.5" />
-              <span>South African Business Intelligence &amp; Direct Messaging</span>
+              <span>South African Business Intelligence &amp; Direct Messaging Hub</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold font-display tracking-tight text-white">
               All Businesses &amp; Direct Email Hub
@@ -515,7 +559,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
         <div className="space-y-4">
           {/* Filter Bar */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               {/* Search */}
               <div className="md:col-span-2 relative">
                 <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -526,7 +570,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                     setSearchTerm(e.target.value);
                     setCurrentPage(1);
                   }}
-                  placeholder="Search business name, email, phone, suburb, town, postal code..."
+                  placeholder="Search name, email, phone, suburb, town, postal code..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-8 py-2.5 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
                 />
                 {searchTerm && (
@@ -576,31 +620,171 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   ))}
                 </select>
               </div>
-            </div>
 
-            {/* Sub-Filters / Stats */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={filterHasEmailOnly}
-                  onChange={(e) => {
-                    setFilterHasEmailOnly(e.target.checked);
-                    setCurrentPage(1);
-                  }}
-                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                />
-                <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                  <Mail className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Show only businesses with valid email addresses</span>
-                </span>
-              </label>
-
-              <div className="text-slate-500 font-medium">
-                Showing <strong className="text-slate-900">{filteredBusinesses.length.toLocaleString()}</strong> businesses
-                {filterHasEmailOnly && <span className="text-emerald-700 font-bold ml-1">(Email verified)</span>}
+              {/* Sort By */}
+              <div>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition cursor-pointer"
+                >
+                  <option value="name_asc">Sort: Name (A to Z)</option>
+                  <option value="name_desc">Sort: Name (Z to A)</option>
+                  <option value="category">Sort: Category</option>
+                  <option value="province">Sort: Province</option>
+                  <option value="postal">Sort: Postal Code</option>
+                  <option value="email_first">Sort: Email Verified First</option>
+                </select>
               </div>
             </div>
+
+            {/* Sub-Filters, Column Toggles & Stats */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={filterHasEmailOnly}
+                    onChange={(e) => {
+                      setFilterHasEmailOnly(e.target.checked);
+                      setCurrentPage(1);
+                    }}
+                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Show only businesses with valid email</span>
+                  </span>
+                </label>
+
+                {/* Column Customizer Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowColumnSelector(!showColumnSelector)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Choose Columns to View</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-slate-500 font-medium">
+                  Showing <strong className="text-slate-900">{filteredBusinesses.length.toLocaleString()}</strong> businesses
+                </span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700"
+                >
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                  <option value={500}>500 per page</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Column Selector Drawer / Panel */}
+            {showColumnSelector && (
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 text-xs uppercase tracking-wider">Choose which business details to display:</span>
+                  <button
+                    onClick={() => setShowColumnSelector(false)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 text-xs font-medium text-slate-700">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.email}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, email: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Email Address</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.website}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, website: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Website URL</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.whatsapp}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, whatsapp: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>WhatsApp</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.phone}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, phone: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Phone Number</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.telephone}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, telephone: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Telephone Number</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.suburbPostal}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, suburbPostal: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Suburb &amp; Postal Code</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.services}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, services: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Services Offered</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.hours}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, hours: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Trading Hours</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.description}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, description: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Description</span>
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Business Table */}
@@ -619,9 +803,16 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
                     <tr>
                       <th className="py-3 px-4">Business &amp; Category</th>
-                      <th className="py-3 px-4">Location &amp; Postal Code</th>
-                      <th className="py-3 px-4">Contact Info</th>
-                      <th className="py-3 px-4">Email Status</th>
+                      <th className="py-3 px-4">Location &amp; Province</th>
+                      {visibleColumns.suburbPostal && <th className="py-3 px-4">Suburb &amp; Postal</th>}
+                      {visibleColumns.phone && <th className="py-3 px-4">Phone</th>}
+                      {visibleColumns.telephone && <th className="py-3 px-4">Telephone</th>}
+                      {visibleColumns.whatsapp && <th className="py-3 px-4">WhatsApp</th>}
+                      {visibleColumns.email && <th className="py-3 px-4">Email</th>}
+                      {visibleColumns.website && <th className="py-3 px-4">Website</th>}
+                      {visibleColumns.services && <th className="py-3 px-4">Services</th>}
+                      {visibleColumns.hours && <th className="py-3 px-4">Trading Hours</th>}
+                      {visibleColumns.description && <th className="py-3 px-4">Description</th>}
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -633,7 +824,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                       return (
                         <tr key={b.id || Math.random().toString()} className="hover:bg-slate-50/80 transition-colors">
                           {/* Business & Category */}
-                          <td className="py-3.5 px-4 min-w-[220px]">
+                          <td className="py-3.5 px-4 min-w-[200px]">
                             <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                               <span>{b.title || "Unnamed Business"}</span>
                               {b.verified && (
@@ -654,59 +845,128 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                             </div>
                           </td>
 
-                          {/* Location & Postal Code */}
-                          <td className="py-3.5 px-4 min-w-[180px]">
+                          {/* Location & Province */}
+                          <td className="py-3.5 px-4 min-w-[150px]">
                             <div className="flex items-center gap-1 text-slate-800 font-semibold">
                               <MapPin className="w-3 h-3 text-emerald-600 shrink-0" />
-                              <span className="truncate">
-                                {b.suburb ? `${b.suburb}, ` : ""}{b.city || b.town || "Johannesburg"}
-                              </span>
+                              <span className="truncate">{b.city || b.town || "Johannesburg"}</span>
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
-                              <span className="capitalize">{b.province || "Gauteng"}</span>
+                            <div className="text-[11px] text-slate-500 capitalize mt-0.5">
+                              {b.province || "Gauteng"}
+                            </div>
+                          </td>
+
+                          {/* Suburb & Postal */}
+                          {visibleColumns.suburbPostal && (
+                            <td className="py-3.5 px-4 min-w-[140px]">
+                              <div className="text-slate-800 font-semibold truncate">{b.suburb || "Central"}</div>
                               {postal && (
-                                <span className="font-mono font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-900 border border-amber-200/80 text-[10px]">
+                                <span className="font-mono font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-900 border border-amber-200/80 text-[10px] inline-block mt-0.5">
                                   {postal}
                                 </span>
                               )}
-                            </div>
-                          </td>
+                            </td>
+                          )}
 
-                          {/* Contact Info */}
-                          <td className="py-3.5 px-4 min-w-[170px] space-y-0.5 text-[11px]">
-                            {(b.phone || b.telephone || b.whatsapp) && (
-                              <div className="flex items-center gap-1.5 text-slate-800">
-                                <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-                                <span>{b.phone || b.telephone || b.whatsapp}</span>
-                              </div>
-                            )}
-                            {b.website && (
-                              <div className="flex items-center gap-1.5 text-emerald-700 truncate max-w-[180px]">
-                                <Globe className="w-3 h-3 text-emerald-600 shrink-0" />
-                                <span className="truncate">{b.website.replace(/^https?:\/\//, "")}</span>
-                              </div>
-                            )}
-                          </td>
+                          {/* Phone */}
+                          {visibleColumns.phone && (
+                            <td className="py-3.5 px-4 min-w-[130px]">
+                              {b.phone ? (
+                                <div className="flex items-center gap-1 text-slate-800 font-mono text-[11px]">
+                                  <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>{b.phone}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 text-[10px]">-</span>
+                              )}
+                            </td>
+                          )}
 
-                          {/* Email Status */}
-                          <td className="py-3.5 px-4 min-w-[180px]">
-                            {hasEmail ? (
-                              <div className="space-y-1">
+                          {/* Telephone */}
+                          {visibleColumns.telephone && (
+                            <td className="py-3.5 px-4 min-w-[130px]">
+                              {b.telephone ? (
+                                <div className="flex items-center gap-1 text-slate-800 font-mono text-[11px]">
+                                  <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>{b.telephone}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 text-[10px]">-</span>
+                              )}
+                            </td>
+                          )}
+
+                          {/* WhatsApp */}
+                          {visibleColumns.whatsapp && (
+                            <td className="py-3.5 px-4 min-w-[130px]">
+                              {b.whatsapp ? (
+                                <div className="flex items-center gap-1 text-emerald-800 font-mono text-[11px]">
+                                  <MessageSquare className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span>{b.whatsapp}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 text-[10px]">-</span>
+                              )}
+                            </td>
+                          )}
+
+                          {/* Email */}
+                          {visibleColumns.email && (
+                            <td className="py-3.5 px-4 min-w-[160px]">
+                              {hasEmail ? (
                                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                  <Mail className="w-3 h-3 text-emerald-600" />
-                                  <span className="truncate max-w-[140px]">{b.email}</span>
+                                  <Mail className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span className="truncate max-w-[130px]">{b.email}</span>
                                 </span>
-                              </div>
-                            ) : (
-                              <span className="text-[11px] text-slate-400 italic flex items-center gap-1">
-                                <AlertCircle className="w-3 h-3 text-slate-300" />
-                                <span>No email registered</span>
+                              ) : (
+                                <span className="text-[11px] text-slate-400 italic">No email</span>
+                              )}
+                            </td>
+                          )}
+
+                          {/* Website */}
+                          {visibleColumns.website && (
+                            <td className="py-3.5 px-4 min-w-[140px]">
+                              {b.website ? (
+                                <div className="flex items-center gap-1 text-emerald-700 truncate max-w-[130px]">
+                                  <Globe className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span className="truncate">{b.website.replace(/^https?:\/\//, "")}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 text-[10px]">-</span>
+                              )}
+                            </td>
+                          )}
+
+                          {/* Services */}
+                          {visibleColumns.services && (
+                            <td className="py-3.5 px-4 min-w-[150px]">
+                              <span className="text-slate-600 line-clamp-1 max-w-[150px]">
+                                {b.servicesOffered || b.category}
                               </span>
-                            )}
-                          </td>
+                            </td>
+                          )}
+
+                          {/* Trading Hours */}
+                          {visibleColumns.hours && (
+                            <td className="py-3.5 px-4 min-w-[130px]">
+                              <span className="text-slate-600 text-[11px]">
+                                {b.tradingHours || "Standard Hours"}
+                              </span>
+                            </td>
+                          )}
+
+                          {/* Description */}
+                          {visibleColumns.description && (
+                            <td className="py-3.5 px-4 min-w-[180px]">
+                              <span className="text-slate-600 line-clamp-1 italic max-w-[180px]">
+                                {b.description || "No description"}
+                              </span>
+                            </td>
+                          )}
 
                           {/* Actions */}
-                          <td className="py-3.5 px-4 text-right min-w-[160px]">
+                          <td className="py-3.5 px-4 text-right min-w-[150px]">
                             <div className="flex items-center justify-end gap-2">
                               {hasEmail && (
                                 <button
@@ -751,20 +1011,17 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                     type="button"
                     disabled={safePage <= 1}
                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-800 font-bold transition flex items-center gap-1 cursor-pointer"
                   >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                    <span>Prev</span>
+                    <ChevronLeft className="w-3.5 h-3.5" /> Prev
                   </button>
-
                   <button
                     type="button"
                     disabled={safePage >= totalPages}
                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-800 font-bold transition flex items-center gap-1 cursor-pointer"
                   >
-                    <span>Next</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
+                    Next <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -773,351 +1030,274 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
         </div>
       )}
 
-      {/* TAB 2: DIRECT & AUTO EMAIL BROADCASTER */}
+      {/* TAB 2: EMAIL BROADCASTER HUB */}
       {activeSubTab === "email" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: Target & Config */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Sender Identity Card */}
-            <div className="bg-emerald-50 rounded-3xl p-5 border border-emerald-200/90 shadow-sm space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
-                  <AtSign className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800">Verified Sender</span>
-                  <p className="font-mono font-bold text-sm text-emerald-950">{SENDER_EMAIL}</p>
-                </div>
-              </div>
-              <p className="text-xs text-emerald-900/80 leading-relaxed">
-                All communications sent through this dashboard are signed and delivered with the official administrator credentials of SearchBiz South Africa.
+          {/* Left Column: Target & Template Setup */}
+          <div className="lg:col-span-1 bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6">
+            <div>
+              <h3 className="font-bold text-slate-900 text-base font-display flex items-center gap-2">
+                <SendHorizontal className="w-5 h-5 text-emerald-600" />
+                <span>Target Audience &amp; Category</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Choose who receives this email broadcast based on region, category, or single contact.
               </p>
             </div>
 
-            {/* Target Selection Card */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Filter className="w-4 h-4 text-emerald-600" />
-                <span>Recipient Targeting</span>
-              </h3>
+            {/* Target Type Selector */}
+            <div className="space-y-3">
+              <label className="text-[10px] font-bold uppercase text-slate-500 block">Target Group</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEmailTargetType("all")}
+                  className={`p-3 rounded-2xl border text-xs font-bold transition text-left cursor-pointer ${
+                    emailTargetType === "all"
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-950 shadow-2xs"
+                      : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="block font-black">All Businesses</span>
+                  <span className="text-[10px] text-slate-500 font-normal">All with valid email</span>
+                </button>
 
-              <div className="space-y-2 text-xs">
-                {/* Option 1: All Businesses */}
-                <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
-                  emailTargetType === "all" ? "bg-emerald-50 border-emerald-400 ring-1 ring-emerald-400" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
-                }`}>
-                  <input
-                    type="radio"
-                    name="targetType"
-                    checked={emailTargetType === "all"}
-                    onChange={() => {
-                      setEmailTargetType("all");
-                      setEmailSingleTarget(null);
-                    }}
-                    className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <div>
-                    <span className="font-bold text-slate-900 block">All Registered Businesses</span>
-                    <span className="text-slate-500 text-[11px]">
-                      Broadcast to every business indexed across South Africa with an email address.
-                    </span>
-                  </div>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setEmailTargetType("province")}
+                  className={`p-3 rounded-2xl border text-xs font-bold transition text-left cursor-pointer ${
+                    emailTargetType === "province"
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-950 shadow-2xs"
+                      : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="block font-black">By Province</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Target specific region</span>
+                </button>
 
-                {/* Option 2: By Province */}
-                <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
-                  emailTargetType === "province" ? "bg-emerald-50 border-emerald-400 ring-1 ring-emerald-400" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
-                }`}>
-                  <input
-                    type="radio"
-                    name="targetType"
-                    checked={emailTargetType === "province"}
-                    onChange={() => {
-                      setEmailTargetType("province");
-                      setEmailSingleTarget(null);
-                    }}
-                    className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <div className="w-full">
-                    <span className="font-bold text-slate-900 block">By Specific Province</span>
-                    <span className="text-slate-500 text-[11px] block mb-2">
-                      Target businesses in one chosen South African province.
-                    </span>
-                    {emailTargetType === "province" && (
-                      <select
-                        value={emailTargetProvince}
-                        onChange={(e) => setEmailTargetProvince(e.target.value)}
-                        className="w-full bg-white border border-emerald-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none"
-                      >
-                        {SA_PROVINCES.map((p) => (
-                          <option key={p.slug} value={p.slug}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setEmailTargetType("category")}
+                  className={`p-3 rounded-2xl border text-xs font-bold transition text-left cursor-pointer ${
+                    emailTargetType === "category"
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-950 shadow-2xs"
+                      : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="block font-black">By Category</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Target trade sector</span>
+                </button>
 
-                {/* Option 3: By Category */}
-                <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
-                  emailTargetType === "category" ? "bg-emerald-50 border-emerald-400 ring-1 ring-emerald-400" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
-                }`}>
-                  <input
-                    type="radio"
-                    name="targetType"
-                    checked={emailTargetType === "category"}
-                    onChange={() => {
-                      setEmailTargetType("category");
-                      setEmailSingleTarget(null);
-                    }}
-                    className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <div className="w-full">
-                    <span className="font-bold text-slate-900 block">By Trade Category</span>
-                    <span className="text-slate-500 text-[11px] block mb-2">
-                      Target specific trades or commercial industries.
-                    </span>
-                    {emailTargetType === "category" && (
-                      <select
-                        value={emailTargetCategory}
-                        onChange={(e) => setEmailTargetCategory(e.target.value)}
-                        className="w-full bg-white border border-emerald-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none"
-                      >
-                        {CATEGORIES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </label>
-
-                {/* Option 4: Single Business (1 at a time) */}
-                <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
-                  emailTargetType === "single" ? "bg-emerald-50 border-emerald-400 ring-1 ring-emerald-400" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
-                }`}>
-                  <input
-                    type="radio"
-                    name="targetType"
-                    checked={emailTargetType === "single"}
-                    onChange={() => setEmailTargetType("single")}
-                    className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <div className="w-full">
-                    <span className="font-bold text-slate-900 block">Single Individual Business (1 at a time)</span>
-                    <span className="text-slate-500 text-[11px] block mb-2">
-                      Send to exactly one business or enter custom recipient email.
-                    </span>
-                    {emailTargetType === "single" && (
-                      <div className="space-y-2 mt-2 pt-2 border-t border-emerald-200">
-                        {emailSingleTarget ? (
-                          <div className="p-2.5 bg-white rounded-xl border border-emerald-300 flex items-center justify-between">
-                            <div>
-                              <p className="font-bold text-slate-900 text-xs">{emailSingleTarget.title}</p>
-                              <p className="text-[10px] text-emerald-700 font-mono">{emailSingleTarget.email}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEmailSingleTarget(null);
-                                setManualSingleEmail("");
-                                setManualSingleName("");
-                              }}
-                              className="text-slate-400 hover:text-rose-600 p-1"
-                              title="Clear single target"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <input
-                              type="text"
-                              value={manualSingleName}
-                              onChange={(e) => setManualSingleName(e.target.value)}
-                              placeholder="Business Name (e.g. Apex Electrical)"
-                              className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
-                            />
-                            <input
-                              type="email"
-                              value={manualSingleEmail}
-                              onChange={(e) => setManualSingleEmail(e.target.value)}
-                              placeholder="Business Email (e.g. info@apexelectrical.co.za)"
-                              className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setEmailTargetType("single")}
+                  className={`p-3 rounded-2xl border text-xs font-bold transition text-left cursor-pointer ${
+                    emailTargetType === "single"
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-950 shadow-2xs"
+                      : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="block font-black">Single Business</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Individual contact</span>
+                </button>
               </div>
 
-              {/* Recipient Counter Badge */}
-              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between text-xs font-bold text-slate-700">
-                <span>Calculated Recipients:</span>
-                <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-extrabold text-xs">
-                  {emailTargetRecipients.length.toLocaleString()} Business(es)
+              {/* Conditional Province Selector */}
+              {emailTargetType === "province" && (
+                <div className="pt-2">
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Select Target Province</label>
+                  <select
+                    value={emailTargetProvince}
+                    onChange={(e) => setEmailTargetProvince(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 cursor-pointer"
+                  >
+                    {SA_PROVINCES.map((p) => (
+                      <option key={p.slug} value={p.slug}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Conditional Category Selector */}
+              {emailTargetType === "category" && (
+                <div className="pt-2">
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Select Target Category</label>
+                  <select
+                    value={emailTargetCategory}
+                    onChange={(e) => setEmailTargetCategory(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 cursor-pointer"
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Conditional Single Target Details */}
+              {emailTargetType === "single" && (
+                <div className="pt-2 space-y-2">
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block">Single Recipient</label>
+                  {emailSingleTarget ? (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-emerald-950 text-xs">{emailSingleTarget.title}</p>
+                        <p className="text-[11px] text-emerald-700 font-mono">{emailSingleTarget.email}</p>
+                      </div>
+                      <button
+                        onClick={() => setEmailSingleTarget(null)}
+                        className="text-xs text-emerald-800 underline font-bold"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder="Business Name"
+                        value={manualSingleName}
+                        onChange={(e) => setManualSingleName(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                      />
+                      <input
+                        type="email"
+                        placeholder="business@email.co.za"
+                        value={manualSingleEmail}
+                        onChange={(e) => setManualSingleEmail(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Target Recipient Count Badge */}
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs flex items-center justify-between font-bold">
+                <span className="text-slate-600">Matched Email Recipients:</span>
+                <span className="text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200">
+                  {emailTargetRecipients.length.toLocaleString()} business(es)
                 </span>
               </div>
             </div>
 
-            {/* Template Selector Card */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <FileText className="w-4 h-4 text-emerald-600" />
-                <span>Pre-built Templates</span>
-              </h3>
-
-              <div className="space-y-1.5 text-xs">
+            {/* Preset Templates */}
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <label className="text-[10px] font-bold uppercase text-slate-500 block">Preset Email Templates</label>
+              <div className="space-y-2">
                 {PRESET_TEMPLATES.map((tmpl) => (
                   <button
                     key={tmpl.id}
                     type="button"
                     onClick={() => handleSelectTemplate(tmpl.id)}
-                    className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                    className={`w-full text-left p-3 rounded-2xl border text-xs transition cursor-pointer ${
                       selectedTemplateId === tmpl.id
-                        ? "bg-emerald-50 border-emerald-400 text-emerald-950 font-bold"
-                        : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                        ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                        : "bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200"
                     }`}
                   >
-                    <span>{tmpl.title}</span>
+                    <span className="font-bold block">{tmpl.title}</span>
                   </button>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Right Column: Email Editor & Live Preview */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
-                <div>
-                  <h3 className="font-bold text-slate-900 text-base font-display">
-                    Compose &amp; Edit Broadcast Message
-                  </h3>
-                  <p className="text-slate-500 text-xs">
-                    Sender: <span className="font-mono font-bold text-emerald-700">{SENDER_EMAIL}</span>
-                  </p>
-                </div>
+          {/* Right Column: Composer & Live Preview */}
+          <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6">
+            <div>
+              <h3 className="font-bold text-slate-900 text-base font-display flex items-center gap-2">
+                <Mail className="w-5 h-5 text-emerald-600" />
+                <span>Email Message Composer</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Customize subject and body. Use personalization tokens like <code className="bg-slate-100 px-1 py-0.5 rounded text-emerald-800 font-mono">&#123;business_name&#125;</code> and <code className="bg-slate-100 px-1 py-0.5 rounded text-emerald-800 font-mono">&#123;city&#125;</code>.
+              </p>
+            </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleSendBroadcast(true)}
-                    disabled={isSending}
-                    className="px-3 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
-                    title="Send a sample test email to admin@searchbiz.co.za"
-                  >
-                    <Send className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Send Test Preview</span>
-                  </button>
-                </div>
+            {/* Personalization Tokens Bar */}
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="text-slate-400 font-bold uppercase text-[10px] mr-1">Insert Token:</span>
+              {["{business_name}", "{city}", "{suburb}", "{postal_code}", "{province}", "{category}", "{listing_url}"].map((token) => (
+                <button
+                  key={token}
+                  type="button"
+                  onClick={() => insertToken(token)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-200 text-slate-700 font-mono font-bold border border-slate-200 transition cursor-pointer"
+                >
+                  {token}
+                </button>
+              ))}
+            </div>
+
+            {/* Subject Input */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase text-slate-500 block">Email Subject Line</label>
+              <input
+                type="text"
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                placeholder="Enter email subject..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+              />
+            </div>
+
+            {/* Body Textarea */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase text-slate-500 block">Email Message Body (Plain Text with Auto Line Breaks)</label>
+              <textarea
+                rows={12}
+                value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
+                placeholder="Compose your message..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-sans text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition leading-relaxed resize-y"
+              />
+            </div>
+
+            {/* Status Feedback */}
+            {sendStatus && (
+              <div className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
+                sendStatus.success ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-rose-50 border-rose-200 text-rose-900"
+              }`}>
+                {sendStatus.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                <span>{sendStatus.message}</span>
               </div>
+            )}
 
-              {/* Status Banner */}
-              {sendStatus && (
-                <div className={`p-4 rounded-2xl text-xs font-semibold flex items-start gap-3 ${
-                  sendStatus.success
-                    ? "bg-emerald-50 border border-emerald-200 text-emerald-900"
-                    : "bg-rose-50 border border-rose-200 text-rose-900"
-                }`}>
-                  {sendStatus.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  )}
-                  <p className="flex-1">{sendStatus.message}</p>
-                </div>
-              )}
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isSending}
+                onClick={() => handleSendBroadcast(true)}
+                className="px-5 py-3 rounded-2xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+              >
+                <Mail className="w-4 h-4 text-slate-500" />
+                <span>Send Test Preview to Me</span>
+              </button>
 
-              {/* Subject Field */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                  Subject Line
-                </label>
-                <input
-                  type="text"
-                  value={emailSubject}
-                  onChange={(e) => setEmailSubject(e.target.value)}
-                  placeholder="e.g. Official Listing Verification on SearchBiz.co.za - {business_name}"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
-                />
-              </div>
-
-              {/* Variable Tokens Inserter */}
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Click to Insert Dynamic Personalization Variables:
-                </span>
-                <div className="flex flex-wrap gap-1.5 text-[11px]">
-                  {[
-                    "{business_name}",
-                    "{city}",
-                    "{suburb}",
-                    "{postal_code}",
-                    "{province}",
-                    "{category}",
-                    "{listing_url}"
-                  ].map((token) => (
-                    <button
-                      key={token}
-                      type="button"
-                      onClick={() => insertToken(token)}
-                      className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 font-mono font-bold transition border border-slate-200 cursor-pointer text-[10px]"
-                    >
-                      + {token}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Message Body Field */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                  Email Message Body (Plain Text &amp; Variables)
-                </label>
-                <textarea
-                  rows={12}
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition leading-relaxed"
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100">
-                <div className="text-xs text-slate-500 font-medium">
-                  Recipients: <strong className="text-slate-900">{emailTargetRecipients.length.toLocaleString()}</strong> business(es) selected.
-                </div>
-
-                <div className="flex items-center gap-3 w-full sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={() => handleSendBroadcast(false)}
-                    disabled={isSending || emailTargetRecipients.length === 0}
-                    className="flex-1 sm:flex-none px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-2 transition shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
-                  >
-                    {isSending ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Dispatching Emails from {SENDER_EMAIL}...</span>
-                      </>
-                    ) : (
-                      <>
-                        <SendHorizontal className="w-4 h-4" />
-                        <span>
-                          {emailTargetType === "single"
-                            ? "Send 1 Email to Business"
-                            : `Dispatch to ${emailTargetRecipients.length.toLocaleString()} Businesses`}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
+              <button
+                type="button"
+                disabled={isSending || emailTargetRecipients.length === 0}
+                onClick={() => handleSendBroadcast(false)}
+                className="flex-1 sm:flex-none px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-2 transition shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
+              >
+                {isSending ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Dispatching Emails from {SENDER_EMAIL}...</span>
+                  </>
+                ) : (
+                  <>
+                    <SendHorizontal className="w-4 h-4" />
+                    <span>
+                      {emailTargetType === "single"
+                        ? "Send 1 Email to Business"
+                        : `Dispatch to ${emailTargetRecipients.length.toLocaleString()} Businesses`}
+                    </span>
+                  </>
+                )}
+              </button>
             </div>
 
             {/* Live Email Preview Card */}
@@ -1268,9 +1448,23 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
               </div>
 
               <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Primary Telephone / WhatsApp</span>
-                <span className="font-bold text-slate-800">
-                  {activeBusinessModal.phone || activeBusinessModal.telephone || activeBusinessModal.whatsapp || "No phone listed"}
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Phone Number</span>
+                <span className="font-bold text-slate-800 font-mono">
+                  {activeBusinessModal.phone || "No phone listed"}
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Telephone Number</span>
+                <span className="font-bold text-slate-800 font-mono">
+                  {activeBusinessModal.telephone || "No telephone listed"}
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">WhatsApp Number</span>
+                <span className="font-bold text-emerald-800 font-mono">
+                  {activeBusinessModal.whatsapp || "No whatsapp listed"}
                 </span>
               </div>
 

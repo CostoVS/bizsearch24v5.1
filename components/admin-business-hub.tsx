@@ -672,19 +672,21 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                 <span className="text-slate-500 font-medium">
                   Showing <strong className="text-slate-900">{filteredBusinesses.length.toLocaleString()}</strong> businesses
                 </span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700"
-                >
-                  <option value={25}>25 per page</option>
-                  <option value={50}>50 per page</option>
-                  <option value={100}>100 per page</option>
-                  <option value={500}>500 per page</option>
-                </select>
+                                 <select
+                   value={itemsPerPage}
+                   onChange={(e) => {
+                     setItemsPerPage(Number(e.target.value));
+                     setCurrentPage(1);
+                   }}
+                   className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700"
+                 >
+                   <option value={25}>25 per page</option>
+                   <option value={50}>50 per page</option>
+                   <option value={100}>100 per page</option>
+                   <option value={500}>500 per page</option>
+                   <option value={1000}>1000 per page</option>
+                   <option value={99999}>All rows</option>
+                 </select>
               </div>
             </div>
 

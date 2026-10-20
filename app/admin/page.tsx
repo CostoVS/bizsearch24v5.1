@@ -140,7 +140,7 @@ export default function AdminDashboard() {
 
   // New CSV Upload Center Tab state variables
   const [csvFileParsed, setCsvFileParsed] = useState<any[]>([]); 
-  const [csvPreviewLimit, setCsvPreviewLimit] = useState<number>(50);
+  const [csvPreviewLimit, setCsvPreviewLimit] = useState<number>(200);
   const [csvEditIndex, setCsvEditIndex] = useState<number | null>(null); 
   const [csvUploadLoading, setCsvUploadLoading] = useState(false);
   const [csvUploadProgressText, setCsvUploadProgressText] = useState("");
@@ -3904,6 +3904,8 @@ export default function AdminDashboard() {
                             instagram: rec.instagram || "",
                             youtube: rec.youtube || "",
                             linkedin: rec.linkedin || "",
+                            verified: false,
+                            isVerified: false,
                             isApproved: true,
                             status: "active",
                           });
@@ -4121,6 +4123,8 @@ export default function AdminDashboard() {
                     { id: "premium", label: "Premium Verified", color: "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-100", count: adminStats?.premium ?? ads.filter(a => a.isPremium && !a.isSponsor).length },
                     { id: "sponsor", label: "Featured Sponsor", color: "bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-100", count: adminStats?.sponsor ?? ads.filter(a => a.isSponsor).length },
                     { id: "claimed", label: "Claimed Listings", color: "bg-sky-50 text-sky-800 hover:bg-sky-100 border border-sky-100", count: adminStats?.claimed ?? ads.filter(a => a.isClaimed === true).length },
+{ id: "verified", label: "✓ Verified", color: "bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border border-emerald-300 font-extrabold", count: ads.filter(a => a.verified === true || a.isVerified === true).length },
+{ id: "unverified", label: "⚠ Unverified", color: "bg-rose-50 text-rose-900 hover:bg-rose-100 border border-rose-300 font-extrabold", count: ads.filter(a => !(a.verified === true || a.isVerified === true)).length },
                     { id: "unclaimed", label: "Unclaimed Listings", color: "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300", count: adminStats?.unclaimed ?? ads.filter(a => a.isClaimed !== true && !a.verified).length },
                     { id: "remove", label: "Removal Requests ⚠", color: "bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-100", count: adminStats?.remove ?? ads.filter(a => a.claimIntention === "remove").length },
                     { id: "claimed_free", label: "Claimed & Request Free", color: "bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-100", count: adminStats?.claimedFree ?? ads.filter(a => a.isClaimed === true && a.claimIntention === "free").length },

@@ -484,16 +484,18 @@ export function readServerDb(): any {
           const aNorm = String(ad.address || '').toLowerCase().replace(/[^a-z0-9]/g, '');
           const townNorm = String(ad.city || ad.town || ad.location || '').toLowerCase().replace(/[^a-z0-9]/g, '');
           const subNorm = String(ad.suburb || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const postNorm = String(ad.postalCode || '').replace(/[^0-9]/g, '');
+          const subKey = subNorm || 'main';
           
           let dedupKey = '';
           if (adId) {
             dedupKey = `id_${adId}`;
           } else if (pNorm && pNorm.length >= 7 && tNorm) {
-            dedupKey = `tp_${tNorm}_${townNorm}_${subNorm}_${pNorm}`;
+            dedupKey = `tp_${tNorm}_${townNorm}_${subKey}_${postNorm}_${pNorm}`;
           } else if (tNorm && aNorm && aNorm.length >= 10) {
-            dedupKey = `ta_${tNorm}_${townNorm}_${aNorm.slice(0, 60)}`;
+            dedupKey = `ta_${tNorm}_${townNorm}_${subKey}_${postNorm}_${aNorm.slice(0, 100)}`;
           } else {
-            dedupKey = `raw_${tNorm}_${townNorm}_${subNorm}_${pNorm}_${aNorm.slice(0, 60)}`;
+            dedupKey = `raw_${tNorm}_${townNorm}_${subKey}_${postNorm}_${pNorm}_${aNorm.slice(0, 100)}`;
           }
 
           if (seenFreeKeys.has(dedupKey)) continue;
@@ -957,12 +959,14 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
       const addrNorm = (a.address || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const townNorm = (a.city || a.town || a.location || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const subNorm = (a.suburb || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const postNorm = (a.postalCode || '').replace(/[^0-9]/g, '');
+      const subKey = subNorm || 'main';
       if (a.id) adMap.set(`id_${a.id}`, a);
       if (titleNorm && phoneNorm && phoneNorm.length >= 7) {
-        adMap.set(`tp_${titleNorm}_${townNorm}_${subNorm}_${phoneNorm}`, a);
+        adMap.set(`tp_${titleNorm}_${townNorm}_${subKey}_${postNorm}_${phoneNorm}`, a);
       }
       if (titleNorm && addrNorm && addrNorm.length >= 10) {
-        adMap.set(`ta_${titleNorm}_${townNorm}_${addrNorm.slice(0, 60)}`, a);
+        adMap.set(`ta_${titleNorm}_${townNorm}_${subKey}_${postNorm}_${addrNorm.slice(0, 100)}`, a);
       }
     }
     globalRef.existingAdMap = adMap;
@@ -1097,7 +1101,9 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
     const phoneNorm = (candidateAd.phone || '').replace(/[^0-9]/g, '').slice(-9);
     const addrNorm = (candidateAd.address || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const townNorm = (candidateAd.city || candidateAd.town || candidateAd.location || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const postNorm = (candidateAd.postalCode || '').replace(/[^0-9]/g, '');
     const subNorm = (candidateAd.suburb || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const subKey = subNorm || 'main';
 
     const isPaidCandidate = Boolean(candidateAd.isPremium === true || candidateAd.isSponsor === true);
     let existingAd: any = null;
@@ -1105,9 +1111,9 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
       if (candidateAd.id && existingAdMap.has(`id_${candidateAd.id}`)) {
         existingAd = existingAdMap.get(`id_${candidateAd.id}`);
       } else if (titleNorm && phoneNorm && phoneNorm.length >= 7) {
-        existingAd = existingAdMap.get(`tp_${titleNorm}_${townNorm}_${subNorm}_${phoneNorm}`);
+        existingAd = existingAdMap.get(`tp_${titleNorm}_${townNorm}_${subKey}_${postNorm}_${phoneNorm}`);
       } else if (titleNorm && addrNorm && addrNorm.length >= 10) {
-        existingAd = existingAdMap.get(`ta_${titleNorm}_${townNorm}_${addrNorm.slice(0, 60)}`);
+        existingAd = existingAdMap.get(`ta_${titleNorm}_${townNorm}_${subKey}_${postNorm}_${addrNorm.slice(0, 100)}`);
       }
     }
     if (existingAd) {
@@ -1196,10 +1202,10 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
     if (!isPaidCandidate) {
       if (candidateAd.id) existingAdMap.set(`id_${candidateAd.id}`, candidateAd);
       if (titleNorm && phoneNorm && phoneNorm.length >= 7) {
-        existingAdMap.set(`tp_${titleNorm}_${townNorm}_${subNorm}_${phoneNorm}`, candidateAd);
+        existingAdMap.set(`tp_${titleNorm}_${townNorm}_${subKey}_${postNorm}_${phoneNorm}`, candidateAd);
       }
       if (titleNorm && addrNorm && addrNorm.length >= 10) {
-        existingAdMap.set(`ta_${titleNorm}_${townNorm}_${addrNorm.slice(0, 60)}`, candidateAd);
+        existingAdMap.set(`ta_${titleNorm}_${townNorm}_${subKey}_${postNorm}_${addrNorm.slice(0, 100)}`, candidateAd);
       }
     }
 

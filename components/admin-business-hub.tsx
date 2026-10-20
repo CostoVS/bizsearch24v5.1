@@ -125,7 +125,8 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   const [filterHasEmailOnly, setFilterHasEmailOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"name_asc" | "name_desc" | "category" | "province" | "postal" | "email_first">("name_asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [itemsPerPage, setItemsPerPage] = useState(500);
+  const [verificationFilter, setVerificationFilter] = useState<"all" | "verified" | "unverified">("all");
 
   // Selection states for selective emailing
   const [selectedBusinessIds, setSelectedBusinessIds] = useState<Set<string>>(new Set());
@@ -249,14 +250,14 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
     setTimeout(() => setCopiedToast(null), 4000);
   };
 
-  // Load complete businesses database without 50-limit
+  // Load complete businesses database with all CSV details without 50-limit
   const loadAllServerBusinesses = async () => {
     setIsLoadingAllBusinesses(true);
     try {
-      const res = await fetch("/api/storage?includeInactive=true&full=true&noLimit=true", { cache: "no-store" });
+      const res = await fetch("/api/storage?includeInactive=true&hubOnly=true&noLimit=true", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.ads)) {
+        if (Array.isArray(data.ads) && data.ads.length > 0) {
           setServerBusinesses(data.ads);
         }
       }
@@ -272,10 +273,10 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   }, []);
 
   useEffect(() => {
-    if (ads && ads.length > 0 && (!serverBusinesses || serverBusinesses.length === 0)) {
+    if (ads && ads.length > 0 && serverBusinesses.length === 0) {
       setServerBusinesses(ads);
     }
-  }, [ads]);
+  }, [ads, serverBusinesses.length]);
 
   const baseBusinesses = useMemo(() => {
     return serverBusinesses.length > 0 ? serverBusinesses : (ads || []);
@@ -353,6 +354,11 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
 
     if (filterHasEmailOnly) {
       result = result.filter(b => b.email && b.email.includes("@"));
+    }
+    if (verificationFilter === "verified") {
+      result = result.filter(b => b.verified === true || b.isVerified === true);
+    } else if (verificationFilter === "unverified") {
+      result = result.filter(b => !(b.verified === true || b.isVerified === true));
     }
 
     if (selectedProvince !== "all") {
@@ -630,16 +636,18 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                 <Mail className="w-3.5 h-3.5" />
                 <span>{isTestingSmtp ? "Testing SMTP..." : "Test SMTP Live"}</span>
               </button>
-              {onRefreshAds && (
-                <button
-                  type="button"
-                  onClick={onRefreshAds}
-                  className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-2 transition border border-white/10 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Refresh Data</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  loadAllServerBusinesses();
+                  if (onRefreshAds) onRefreshAds();
+                }}
+                disabled={isLoadingAllBusinesses}
+                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-2 transition border border-white/10 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAllBusinesses ? "animate-spin" : ""}`} />
+                <span>{isLoadingAllBusinesses ? "Refreshing..." : "Refresh Data"}</span>
+              </button>
             </div>
             <div className="px-4 py-2 rounded-xl bg-emerald-900/60 border border-emerald-600/30 text-emerald-200 text-xs font-semibold flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -822,6 +830,21 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                 </select>
               </div>
 
+              {/* Verification Filter */}
+              <div>
+                <select
+                  value={verificationFilter}
+                  onChange={(e) => {
+                    setVerificationFilter(e.target.value as any);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition cursor-pointer"
+                >
+                  <option value="all">All Verification Status</option>
+                  <option value="verified">Verified Only</option>
+                  <option value="unverified">Unverified Only</option>
+                </select>
+              </div>
               {/* Sort By */}
               <div>
                 <select
@@ -899,6 +922,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   <option value={500}>500 per page</option>
                   <option value={1000}>1000 per page</option>
                   <option value={5000}>5000 per page</option>
+                  <option value={10000}>10000 per page</option>
                   <option value={999999}>All rows ({filteredBusinesses.length.toLocaleString()})</option>
                 </select>
               </div>
@@ -1180,11 +1204,17 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                           </td>
                           {/* Business & Category */}
                           <td className="py-3.5 px-4 min-w-[200px]">
-                            <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                            <div className="font-bold text-slate-900 text-sm flex flex-wrap items-center gap-1.5">
                               <span>{b.title || "Unnamed Business"}</span>
-                              {b.verified && (
-                                <span title="Verified">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              {b.verified ? (
+                                <span title="Verified Business" className="inline-flex items-center text-[10px] font-black uppercase text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-300 shadow-2xs">
+                                  <CheckCircle2 className="w-3 h-3 mr-0.5 text-emerald-600 shrink-0" />
+                                  Verified
+                                </span>
+                              ) : (
+                                <span title="Unverified Listing" className="inline-flex items-center text-[10px] font-bold uppercase text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-300 shadow-2xs">
+                                  <AlertCircle className="w-3 h-3 mr-0.5 text-rose-600 shrink-0" />
+                                  Unverified
                                 </span>
                               )}
                             </div>

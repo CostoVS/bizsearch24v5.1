@@ -51,11 +51,28 @@ export const VerificationBadge = ({
       </div>
       {!isClaimed && (
         <div 
-          className="inline-flex items-center text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md text-[10px] font-semibold tracking-wider border border-amber-200"
-          title="Unclaimed Listing — Available for owner to claim"
+          className="inline-flex items-center text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-amber-300 shadow-2xs"
+          title="Unclaimed Listing — Available for business owner to claim"
         >
-          <AlertCircle className="w-3 h-3 mr-1 text-amber-600 shrink-0" />
-          <span>Unclaimed</span>
+          <AlertCircle className="w-3.5 h-3.5 mr-1 text-amber-600 shrink-0" />
+          <span>Unclaimed Listing</span>
+        </div>
+      )}
+      {!verified ? (
+        <div 
+          className="inline-flex items-center text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-rose-300 shadow-2xs"
+          title="Unverified Listing — Information has not been officially verified by SearchBiz admin"
+        >
+          <AlertCircle className="w-3.5 h-3.5 mr-1 text-rose-600 shrink-0" />
+          <span>Unverified Listing</span>
+        </div>
+      ) : (
+        <div 
+          className="inline-flex items-center text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border border-emerald-300 shadow-2xs"
+          title="Admin Verified Business"
+        >
+          <BadgeCheck className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" />
+          <span>Verified Business</span>
         </div>
       )}
     </div>

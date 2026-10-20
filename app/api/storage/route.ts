@@ -253,6 +253,48 @@ function toLitePublicAd(ad: any): any {
   return lite;
 }
 
+function toHubBusinessRecord(ad: any): any {
+  if (!ad || typeof ad !== 'object') return null;
+  return {
+    id: ad.id || '',
+    title: ad.title || 'Unnamed Business',
+    category: ad.category || 'General Services',
+    categoryCode: ad.categoryCode || '',
+    categoryGroup: ad.categoryGroup || '',
+    province: ad.province || 'gauteng',
+    provinceName: ad.provinceName || '',
+    city: ad.city || ad.town || 'Johannesburg',
+    town: ad.town || ad.city || 'Johannesburg',
+    suburb: ad.suburb || '',
+    postalCode: ad.postalCode || '',
+    address: ad.address || '',
+    phone: ad.phone || '',
+    telephone: ad.telephone || ad.landline || '',
+    whatsapp: ad.whatsapp || '',
+    email: ad.email || '',
+    website: ad.website || '',
+    tradingHours: ad.tradingHours || ad.operatingHours || '',
+    servicesOffered: ad.servicesOffered || '',
+    description: ad.description || '',
+    source: ad.source || '',
+    isApproved: ad.isApproved !== false,
+    adminApproved: ad.adminApproved !== false,
+    verified: Boolean(ad.verified),
+    isVerified: Boolean(ad.isVerified || ad.verified),
+    isPremium: Boolean(ad.isPremium),
+    isClaimed: Boolean(ad.isClaimed),
+    status: ad.status || 'active',
+    approvalStatus: ad.approvalStatus || 'approved',
+    facebook: ad.facebook || ad.socialFacebook || '',
+    instagram: ad.instagram || ad.socialInstagram || '',
+    twitter: ad.twitter || ad.x || ad.socialX || '',
+    linkedin: ad.linkedin || ad.socialLinkedin || '',
+    tiktok: ad.tiktok || ad.socialTikTok || '',
+    youtube: ad.youtube || ad.socialYoutube || '',
+    createdAt: ad.createdAt || ''
+  };
+}
+
 function adMatchesSearchTokens(ad: any, tokenVariantSets: string[][]): boolean {
   const title = String(ad.title || '').toLowerCase();
   const cat = String(ad.category || '').toLowerCase();
@@ -1632,6 +1674,28 @@ export async function GET(req: Request) {
       adsToReturn = filtered.slice(0, Math.min(limitNum, isAdminQuery ? 100000 : 500));
     } else if (!isFull && !isLimitAll && filtered.length > 100) {
       adsToReturn = filtered.slice(0, 100);
+    }
+
+    const isHubOnly = url.searchParams.get('hubOnly') === 'true';
+    if (isHubOnly) {
+      const hubAds = adsToReturn.map(toHubBusinessRecord).filter(Boolean);
+      return NextResponse.json({
+        updatedAt: baseData.updatedAt || Date.now(),
+        totalAdsCount: filteredTotal,
+        verifiedCount: filteredVerified,
+        globalTotalAdsCount: totalAdsCount,
+        globalVerifiedCount: verifiedCount,
+        page: activePage,
+        pageSize: activePageSize,
+        totalPages,
+        ads: hubAds,
+        adminStats
+      }, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'X-Cache': 'O1-HUB-OPTIMIZED'
+        }
+      });
     }
 
     const isLightweightDirectoryPage = Boolean(page && pageSize && !includeInactive && !isFull);

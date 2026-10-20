@@ -125,7 +125,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   const [filterHasEmailOnly, setFilterHasEmailOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"name_asc" | "name_desc" | "category" | "province" | "postal" | "email_first">("name_asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(500);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   const [verificationFilter, setVerificationFilter] = useState<"all" | "verified" | "unverified">("all");
 
   // Selection states for selective emailing

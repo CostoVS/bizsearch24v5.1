@@ -19,60 +19,58 @@ export const VerificationBadge = ({
   isClaimed?: boolean;
   isRecommended?: boolean;
 }) => {
-  // If upgraded to Level 2 by Admin (paid R199/mo + verified), show Verified & Recommended badges
   if (isPremium && (verified || isClaimed)) {
     return (
-      <div className="flex flex-wrap gap-1.5 items-center shrink-0 my-1">
+      <div className="flex flex-wrap gap-1 items-center shrink-0 my-1">
         <div 
-          className="inline-flex items-center text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-emerald-300 shadow-xs"
+          className="inline-flex items-center text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide border border-emerald-300 shadow-2xs"
           title="Admin Verified Level 2 Business"
         >
-          <BadgeCheck className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" />
-          <span>Verified Business</span>
+          <BadgeCheck className="w-3 h-3 mr-0.5 text-emerald-600 shrink-0" />
+          <span>Verified</span>
         </div>
         <div 
-          className="inline-flex items-center text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-amber-300 shadow-xs"
-          title="SearchBiz Recommended Business (Level 2 — R199/mo)"
+          className="inline-flex items-center text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide border border-amber-300 shadow-2xs"
+          title="SearchBiz Recommended Business"
         >
-          <ShieldCheck className="w-3.5 h-3.5 mr-1 text-amber-600 shrink-0" />
+          <ShieldCheck className="w-3 h-3 mr-0.5 text-amber-600 shrink-0" />
           <span>Recommended</span>
         </div>
       </div>
     );
   }
-
   return (
-    <div className="flex flex-wrap gap-1.5 items-center shrink-0 my-1">
+    <div className="flex flex-wrap gap-1 items-center shrink-0 my-1">
       <div 
-        className="inline-flex items-center text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-200"
-        title="Standard SearchBiz.co.za Listing"
+        className="inline-flex items-center text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border border-slate-200"
+        title="Standard SearchBiz Listing"
       >
-        <span>Standard Listing</span>
+        <span>Standard</span>
       </div>
       {!isClaimed && (
         <div 
-          className="inline-flex items-center text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-amber-300 shadow-2xs"
-          title="Unclaimed Listing — Available for business owner to claim"
+          className="inline-flex items-center text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border border-amber-300 shadow-2xs"
+          title="Unclaimed Listing — Available to claim"
         >
-          <AlertCircle className="w-3.5 h-3.5 mr-1 text-amber-600 shrink-0" />
-          <span>Unclaimed Listing</span>
+          <AlertCircle className="w-3 h-3 mr-0.5 text-amber-600 shrink-0" />
+          <span>Unclaimed</span>
         </div>
       )}
       {!verified ? (
         <div 
-          className="inline-flex items-center text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-rose-300 shadow-2xs"
-          title="Unverified Listing — Information has not been officially verified by SearchBiz admin"
+          className="inline-flex items-center text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border border-rose-300 shadow-2xs"
+          title="Unverified Listing — Not officially verified by admin"
         >
-          <AlertCircle className="w-3.5 h-3.5 mr-1 text-rose-600 shrink-0" />
-          <span>Unverified Listing</span>
+          <AlertCircle className="w-3 h-3 mr-0.5 text-rose-600 shrink-0" />
+          <span>Unverified</span>
         </div>
       ) : (
         <div 
-          className="inline-flex items-center text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border border-emerald-300 shadow-2xs"
+          className="inline-flex items-center text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide border border-emerald-300 shadow-2xs"
           title="Admin Verified Business"
         >
-          <BadgeCheck className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" />
-          <span>Verified Business</span>
+          <BadgeCheck className="w-3 h-3 mr-0.5 text-emerald-600 shrink-0" />
+          <span>Verified</span>
         </div>
       )}
     </div>

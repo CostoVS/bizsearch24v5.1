@@ -53,7 +53,7 @@ export function DataSyncer() {
                 const cleanedServerAds = cleanAdsArray(serverAds);
                 const finalAds = cleanedServerAds.filter((a: any) => a && a.id && !combinedDeletedSet.has(a.id));
 
-                safeLocalStorage.setItem("searchbiz_all_ads", JSON.stringify(finalAds.slice(0, 48)));
+                safeLocalStorage.setItem("searchbiz_all_ads", JSON.stringify(finalAds));
                 adsChanged = true;
               }
 

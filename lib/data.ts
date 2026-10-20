@@ -494,7 +494,7 @@ export async function fetchAndStoreAds(): Promise<any[]> {
         }
 
         _memStoredAds = finalAds;
-        const localSlice = finalAds.length > 120 ? finalAds.slice(0, 120) : finalAds;
+        const localSlice = finalAds;
         const serialized = JSON.stringify(localSlice);
         safeLocalStorage.setItem("searchbiz_all_ads", serialized);
         _memStoredAdsRaw = serialized;
@@ -550,7 +550,7 @@ export async function saveStoredAds(ads: any[]): Promise<void> {
     const validAds = cleanAdsArray(ads.filter(ad => ad && ad.id));
 
     _memStoredAds = validAds;
-    const localSlice = validAds.length > 500 ? validAds.slice(0, 500) : validAds;
+    const localSlice = validAds;
     const serialized = JSON.stringify(localSlice);
     safeLocalStorage.setItem("searchbiz_all_ads", serialized);
     _memStoredAdsRaw = serialized;
@@ -591,7 +591,7 @@ export async function saveStoredAds(ads: any[]): Promise<void> {
           }
           if (res.data && Array.isArray(res.data.ads)) {
             _memStoredAds = res.data.ads;
-            const resSlice = res.data.ads.length > 500 ? res.data.ads.slice(0, 500) : res.data.ads;
+            const resSlice = res.data.ads;
             const resSerialized = JSON.stringify(resSlice);
             safeLocalStorage.setItem("searchbiz_all_ads", resSerialized);
             _memStoredAdsRaw = resSerialized;

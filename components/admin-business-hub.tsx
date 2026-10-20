@@ -1176,7 +1176,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                       {visibleColumns.services && <th className="py-3 px-4">Services</th>}
                       {visibleColumns.hours && <th className="py-3 px-4">Trading Hours</th>}
                       {visibleColumns.description && <th className="py-3 px-4">Description</th>}
-                      <th className="py-3 px-4 text-right">Actions</th>
+                      <th className="py-3 px-4 text-right sticky right-0 bg-slate-50 shadow-xs z-20">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
@@ -1382,7 +1382,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                           )}
 
                           {/* Actions */}
-                          <td className="py-3.5 px-4 text-right min-w-[170px]">
+                          <td className="py-3.5 px-4 text-right min-w-[170px] sticky right-0 bg-white shadow-xs z-20">
                             <div className="flex items-center justify-end gap-1.5">
                               {hasEmail && (
                                 <button

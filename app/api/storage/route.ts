@@ -375,7 +375,7 @@ function getLocalDataNoCache() {
     try {
       if (fs.existsSync(p)) {
         const st = fs.statSync(p);
-        if (st.size > 2 && st.size < 5000000) {
+        if (st.size > 2 && st.size < 100000000) {
           const raw = fs.readFileSync(p, 'utf-8');
           const parsed = JSON.parse(raw);
           if (parsed && typeof parsed === 'object' && Array.isArray(parsed.ads) && parsed.lastPurgeAt) {

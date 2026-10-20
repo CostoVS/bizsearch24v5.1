@@ -656,7 +656,7 @@ export function writeServerDb(data: any, immediate: boolean = false, keepIndexVa
   globalRef.lastSelfWriteTime = Date.now();
 
   const adCount = Array.isArray(data.ads) ? data.ads.length : 0;
-  const debounceMs = immediate && adCount < 1000 ? 300 : adCount > 5000 ? 6000 : 2500;
+  const debounceMs = immediate && adCount < 1000 ? 300 : adCount > 100000 ? 6000 : 2500;
 
   if (globalRef.flushTimer) {
     clearTimeout(globalRef.flushTimer);

@@ -921,7 +921,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   <option value={100}>100 per page</option>
                   <option value={500}>500 per page</option>
                   <option value={1000}>1000 per page</option>
-                  <option value={5000}>5000 per page</option>
+                  <option value={100000}>100000 per page</option>
                   <option value={10000}>10000 per page</option>
                   <option value={999999}>All rows ({filteredBusinesses.length.toLocaleString()})</option>
                 </select>

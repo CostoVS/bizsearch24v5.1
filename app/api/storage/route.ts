@@ -554,7 +554,7 @@ function saveLocalDataNoCache(data: any, immediateAllBackups: boolean = false, k
   }
 
   const adCount = Array.isArray(data.ads) ? data.ads.length : 0;
-  const debounceMs = adCount < 1000 ? 250 : adCount > 5000 ? 6000 : 2500;
+  const debounceMs = adCount < 1000 ? 250 : adCount > 100000 ? 6000 : 2500;
 
   if (globalRef.flushTimer) {
     clearTimeout(globalRef.flushTimer);
@@ -1254,6 +1254,7 @@ export async function GET(req: Request) {
 
     // 1. Ultra-fast O(1) statsOnly endpoint for SearchBar, Footer, Sitemap, and Category counters
     if (statsOnly) {
+      console.log("Stats requested, totalAdsCount:", totalAdsCount);
       return NextResponse.json({
         updatedAt: baseData.updatedAt || Date.now(),
         totalAdsCount,

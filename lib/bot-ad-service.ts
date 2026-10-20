@@ -1091,8 +1091,8 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
       existingAd.city = candidateAd.city;
       existingAd.town = candidateAd.town;
       existingAd.location = candidateAd.location;
-      if (candidateAd.suburb && !existingAd.suburb) existingAd.suburb = candidateAd.suburb;
-      if (candidateAd.postalCode && !existingAd.postalCode) existingAd.postalCode = candidateAd.postalCode;
+      if (candidateAd.suburb) existingAd.suburb = candidateAd.suburb;
+      if (candidateAd.postalCode) existingAd.postalCode = candidateAd.postalCode;
       if (candidateAd.category && candidateAd.category !== 'General Services') {
         existingAd.category = candidateAd.category;
         existingAd.subcategory = candidateAd.subcategory;
@@ -1100,17 +1100,17 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
         existingAd.categoryGroup = candidateAd.categoryGroup;
         existingAd.parentCategory = candidateAd.parentCategory;
       }
-      if (candidateAd.address && (!existingAd.address || existingAd.address.length < candidateAd.address.length)) {
+      if (candidateAd.address && candidateAd.address.length > 5) {
         existingAd.address = candidateAd.address;
       }
-      if (candidateAd.phone && !existingAd.phone) existingAd.phone = candidateAd.phone;
-      if (candidateAd.landline && !existingAd.landline) {
+      if (candidateAd.phone) existingAd.phone = candidateAd.phone;
+      if (candidateAd.landline) {
         existingAd.landline = candidateAd.landline;
         existingAd.telephone = candidateAd.landline;
       }
-      if (candidateAd.whatsapp && !existingAd.whatsapp) existingAd.whatsapp = candidateAd.whatsapp;
-      if (candidateAd.email && !existingAd.email) existingAd.email = candidateAd.email;
-      if (candidateAd.website && !existingAd.website) existingAd.website = candidateAd.website;
+      if (candidateAd.whatsapp) existingAd.whatsapp = candidateAd.whatsapp;
+      if (candidateAd.email) existingAd.email = candidateAd.email;
+      if (candidateAd.website) existingAd.website = candidateAd.website;
       if (candidateAd.facebook && !existingAd.facebook) {
         existingAd.facebook = candidateAd.facebook;
         existingAd.socialFacebook = candidateAd.facebook;

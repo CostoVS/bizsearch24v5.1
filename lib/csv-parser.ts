@@ -1,7 +1,7 @@
 import { isCustomerReviewOrGarbage } from "./clean-ad";
 import { detectLocationFromPhoneAndText } from "./location-detector";
 import { resolveAdGeographyAndCategory, normalizeProvinceSlug } from "./ad-normalizer";
-import { resolveExactSouthAfricanLocation } from "./location-resolver";
+import { resolveExactSouthAfricanLocation, getProvinceFromPostalCode } from "./location-resolver";
 
 /**
  * Standard CSV line parser that properly handles:
@@ -354,6 +354,7 @@ export interface ParsedCsvBusinessRecord {
   categoryCode?: string;
   province: string;
   city: string;
+  town?: string;
   suburb?: string;
   postalCode?: string;
   tradingHours?: string;
@@ -548,7 +549,24 @@ export function parseCsvRowToRecord(
   let city = (row["town / city"] || row["town/city"] || row["city / town"] || row["city/town"] || row["city"] || row["town"] || row["municipality"] || explicitSuburb || "").trim();
   const rawCsvProvince = (row["province"] || row["state"] || row["region"] || "").trim();
   let province = normalizeProvinceSlug(rawCsvProvince) || "";
-  let postalCode = (row["postal code"] || row["postalcode"] || row["postcode"] || row["zip"] || row["zip code"] || "").trim();
+  let postalCode = (
+    row["postal code"] || row["postalcode"] || row["post code"] || row["postcode"] ||
+    row["postal"] || row["postal_code"] || row["pcode"] || row["zip"] ||
+    row["zip code"] || row["zipcode"] || row["area code"] || ""
+  ).trim();
+
+  // If code column has 3-4 digits only
+  if (!postalCode && row["code"] && /^\d{3,4}$/.test(row["code"].trim())) {
+    postalCode = row["code"].trim();
+  }
+
+  // Handle Excel dropping leading zeroes (e.g., 0181 becomes 181, 0002 becomes 2, etc.)
+  if (/^\d{1,3}$/.test(postalCode)) {
+    postalCode = postalCode.padStart(4, "0");
+  } else if (!/^\d{4}$/.test(postalCode)) {
+    const pMatch = postalCode.match(/\b\d{4}\b/);
+    if (pMatch) postalCode = pMatch[0];
+  }
 
   // 6. Physical / Street Address (Minimum Requirement #2)
   let address = "";
@@ -697,18 +715,28 @@ export function parseCsvRowToRecord(
   // 7. Optional Fields (capture if available):
   // Email or emails
   let email = "";
-  const emailHeaders = ["email or emails", "email address", "email", "emails", "e mail", "contact email", "mail"];
+  const emailHeaders = [
+    "email or emails", "email address", "email", "emails", "e mail", "e-mail",
+    "contact email", "contact_email", "mail", "business email", "company email",
+    "info email", "primary email"
+  ];
   for (const eh of emailHeaders) {
-    if (row[eh] && row[eh].includes("@")) {
-      email = row[eh].trim();
-      break;
+    if (row[eh]) {
+      const match = row[eh].match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/);
+      if (match) {
+        email = match[0].trim();
+        break;
+      }
     }
   }
   if (!email) {
     for (const val of values) {
-      if (val && val.includes("@") && /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/.test(val)) {
-        email = val.trim();
-        break;
+      if (val && val.includes("@")) {
+        const match = val.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/);
+        if (match) {
+          email = match[0].trim();
+          break;
+        }
       }
     }
   }
@@ -767,37 +795,26 @@ export function parseCsvRowToRecord(
   const socialLinks = rawSocialLinks || [twitter, tiktok, facebook, instagram, youtube, linkedin].filter(Boolean).join(" | ");
 
   // 8. Province, Town/City & Suburb Auto-Resolution from CSV columns, Suburb/Town lookup table, Postal Code, Address & Phone
-  const effectiveFallbackProv = (!defaultProvince || defaultProvince === "all") ? "gauteng" : defaultProvince;
-  const geoCandidate: any = {
-    title,
-    category,
-    categoryCode,
-    province: province || "",
-    city: city || "",
-    town: city || "",
-    location: city || "",
-    suburb: explicitSuburb || "",
-    postalCode: postalCode || "",
-    address: address || "",
-    phone: phone || ""
-  };
-  resolveAdGeographyAndCategory(geoCandidate);
+  const officialProvFromPostal = postalCode ? getProvinceFromPostalCode(postalCode) : null;
+  const initialProvince = province || (officialProvFromPostal ? officialProvFromPostal.slug : "");
+  const effectiveFallbackProv = initialProvince || (defaultProvince && defaultProvince !== "all" ? defaultProvince : "");
 
   // Deterministic 6,931 suburbs & postal codes resolution to eliminate mis-matches
   const exactLoc = resolveExactSouthAfricanLocation({
-    province: province || geoCandidate.province || effectiveFallbackProv,
-    city: city || geoCandidate.city,
-    town: city || geoCandidate.city,
-    suburb: explicitSuburb || geoCandidate.suburb,
-    postalCode: postalCode || geoCandidate.postalCode,
+    province: effectiveFallbackProv || undefined,
+    city: city || explicitSuburb,
+    town: city || explicitSuburb,
+    suburb: explicitSuburb,
+    postalCode: postalCode,
     address,
-    title
+    title,
+    phone
   });
 
   province = exactLoc.provinceSlug;
   city = exactLoc.city;
-  const resolvedSuburb = explicitSuburb || exactLoc.suburb || geoCandidate.suburb || "";
-  postalCode = postalCode || exactLoc.postalCode || geoCandidate.postalCode || "";
+  const resolvedSuburb = exactLoc.suburb || explicitSuburb || "";
+  postalCode = exactLoc.postalCode || postalCode || "";
 
   // If province was still not explicitly in the CSV row and not resolved, detect from phone area code / address / town text
   if (!rawCsvProvince && (!province || province === "gauteng")) {
@@ -826,10 +843,11 @@ export function parseCsvRowToRecord(
     telephone: (telephone || phone || "").substring(0, 50).trim(),
     whatsapp: (whatsapp || "").substring(0, 50).trim(),
     email: (email || "").substring(0, 120).trim(),
-    category: (hasExplicitAdminCategory ? defaultCategory : (geoCandidate.category || category || defaultCategory || "General Business Services")).trim(),
-    categoryCode: categoryCode || geoCandidate.categoryCode || undefined,
+    category: (hasExplicitAdminCategory ? defaultCategory : (category || defaultCategory || "General Business Services")).trim(),
+    categoryCode: categoryCode || undefined,
     province: (province || effectiveFallbackProv || "gauteng").trim(),
     city: (city || "Johannesburg").trim(),
+    town: (city || "Johannesburg").trim(),
     suburb: resolvedSuburb || undefined,
     postalCode: postalCode || undefined,
     tradingHours: (tradingHours || "").substring(0, 200).trim(),

@@ -1602,8 +1602,15 @@ export async function GET(req: Request) {
     let activePage = page || 1;
     let activePageSize = filteredTotal;
 
-    const noLimit = url.searchParams.get('noLimit') === 'true' || url.searchParams.get('unlimited') === 'true' || isLimitAll || Boolean(pageSize && pageSize >= 999999);
-    if (noLimit) {
+    const isAdminQuery = includeInactive || isFull || url.searchParams.get('admin') === 'true';
+    const noLimit = url.searchParams.get('noLimit') === 'true' || url.searchParams.get('unlimited') === 'true' || isLimitAll || Boolean(pageSize && pageSize >= 99999);
+
+    if (isAdminQuery && (noLimit || isFull || isLimitAll)) {
+      adsToReturn = filtered;
+      activePage = 1;
+      activePageSize = filteredTotal;
+      totalPages = 1;
+    } else if (noLimit) {
       const SAFE_STREAM_CHUNK = 250;
       if (filteredTotal > SAFE_STREAM_CHUNK) {
         const startIdx = (activePage - 1) * SAFE_STREAM_CHUNK;
@@ -1614,14 +1621,15 @@ export async function GET(req: Request) {
         adsToReturn = filtered;
       }
     } else if (page && pageSize) {
-      const safePageSize = Math.min(pageSize, 500);
+      const maxAllowedPageSize = isAdminQuery ? 100000 : 500;
+      const safePageSize = Math.min(pageSize, maxAllowedPageSize);
       activePage = page;
       activePageSize = safePageSize;
       totalPages = Math.max(1, Math.ceil(filteredTotal / safePageSize));
       const startIndex = (page - 1) * safePageSize;
       adsToReturn = filtered.slice(startIndex, startIndex + safePageSize);
     } else if (limitNum && !isNaN(limitNum)) {
-      adsToReturn = filtered.slice(0, Math.min(limitNum, 500));
+      adsToReturn = filtered.slice(0, Math.min(limitNum, isAdminQuery ? 100000 : 500));
     } else if (!isFull && !isLimitAll && filtered.length > 100) {
       adsToReturn = filtered.slice(0, 100);
     }

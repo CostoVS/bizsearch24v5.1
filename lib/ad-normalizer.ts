@@ -11,7 +11,7 @@ import {
   NORTHERN_CAPE_SUBURBS,
   getPostalCodeForTown
 } from './locations';
-import { EXTENDED_SA_PLACES, resolveExactSouthAfricanLocation } from './location-resolver';
+import { EXTENDED_SA_PLACES, resolveExactSouthAfricanLocation, getProvinceFromPostalCode } from './location-resolver';
 import { CATEGORIES_STRUCTURED, stripCategoryNumber, getCategoryCode } from './categories';
 
 interface ResolvedLocation {
@@ -284,8 +284,10 @@ export function resolveAdGeographyAndCategory(ad: any): void {
 
   const rawCity = String(ad.city || ad.town || ad.location || '').trim();
   const rawSuburb = String(ad.suburb || '').trim();
-  const explicitProvSlug = normalizeProvinceSlug(ad.province || ad.province_slug || ad.provinceName);
-  const rawPostal = String(ad.postalCode || ad.postal_code || '').trim() || extractPostalCodeFromText(ad.address);
+  const rawPostalCandidate = String(ad.postalCode || ad.postal_code || '').trim() || extractPostalCodeFromText(ad.address);
+  const rawPostal = /^\d{1,3}$/.test(rawPostalCandidate) ? rawPostalCandidate.padStart(4, '0') : rawPostalCandidate;
+  const postalProv = rawPostal ? getProvinceFromPostalCode(rawPostal) : null;
+  const explicitProvSlug = postalProv?.slug || normalizeProvinceSlug(ad.province || ad.province_slug || ad.provinceName);
 
   let matchedLoc: ResolvedLocation | undefined;
 
@@ -313,8 +315,8 @@ export function resolveAdGeographyAndCategory(ad: any): void {
     }
   }
 
-  // 2. Fallback to national town/suburb/postal lookup if not found in explicitProvSlug
-  const isGenericDefaultCity = !rawCity || rawCity.toLowerCase() === 'johannesburg' || rawCity.toLowerCase() === 'durban' || rawCity.toLowerCase() === 'south africa';
+  // 2. Fallback to national town/suburb/postal lookup
+  const isGenericDefaultCity = !rawCity || rawCity.toLowerCase() === 'johannesburg' || rawCity.toLowerCase() === 'south africa';
   if (!matchedLoc && rawCity && !isGenericDefaultCity) {
     matchedLoc = townLookupMap!.get(normKey(rawCity)) || townLookupMap!.get(normAlnum(rawCity)) ||
                  suburbLookupMap!.get(normKey(rawCity)) || suburbLookupMap!.get(normAlnum(rawCity));
@@ -357,20 +359,13 @@ export function resolveAdGeographyAndCategory(ad: any): void {
   }
 
   if (matchedLoc) {
-    if (!explicitProvSlug || matchedLoc.provinceSlug === explicitProvSlug) {
-      ad.province = matchedLoc.provinceSlug;
-      ad.provinceName = matchedLoc.provinceName;
-    } else if ((explicitProvSlug === 'gauteng' || explicitProvSlug === 'kwazulu-natal') && !provinceTownMap!.has(`${explicitProvSlug}:${normKey(rawCity)}`) && !provinceSuburbMap!.has(`${explicitProvSlug}:${normKey(rawSuburb)}`)) {
-      ad.province = matchedLoc.provinceSlug;
-      ad.provinceName = matchedLoc.provinceName;
-    } else {
-      ad.province = explicitProvSlug;
-      ad.provinceName = PROVINCE_NAMES_BY_SLUG[explicitProvSlug] || matchedLoc.provinceName;
-    }
+    // If a definitive location was matched, its province is authoritative!
+    ad.province = matchedLoc.provinceSlug;
+    ad.provinceName = matchedLoc.provinceName || PROVINCE_NAMES_BY_SLUG[matchedLoc.provinceSlug] || matchedLoc.provinceSlug;
 
-    ad.town = matchedLoc.town || rawCity || 'Johannesburg';
+    ad.town = rawCity || matchedLoc.town || 'Johannesburg';
     if (rawSuburb) {
-      ad.suburb = matchedLoc.suburb && normKey(rawSuburb) === normKey(matchedLoc.suburb) ? matchedLoc.suburb : rawSuburb;
+      ad.suburb = rawSuburb;
     } else if (matchedLoc.suburb) {
       ad.suburb = matchedLoc.suburb;
     }
@@ -378,7 +373,7 @@ export function resolveAdGeographyAndCategory(ad: any): void {
     if (!rawCity || isGenericDefaultCity) {
       ad.city = matchedLoc.town || matchedLoc.suburb || 'Johannesburg';
     } else {
-      ad.city = matchedLoc.town || rawCity;
+      ad.city = rawCity || matchedLoc.town;
     }
     ad.location = (ad.city || ad.town).toLowerCase();
     ad.postalCode = rawPostal || matchedLoc.postalCode || getPostalCodeForTown(ad.town || ad.city) || '';
@@ -386,7 +381,18 @@ export function resolveAdGeographyAndCategory(ad: any): void {
     const finalProv = explicitProvSlug || 'gauteng';
     ad.province = finalProv;
     ad.provinceName = PROVINCE_NAMES_BY_SLUG[finalProv] || 'Gauteng';
-    const finalCity = rawCity || 'Johannesburg';
+    const PROV_DEFAULT_CITIES: Record<string, string> = {
+      'gauteng': 'Johannesburg',
+      'kwazulu-natal': 'Durban',
+      'western-cape': 'Cape Town',
+      'eastern-cape': 'Gqeberha',
+      'free-state': 'Bloemfontein',
+      'limpopo': 'Polokwane',
+      'mpumalanga': 'Mbombela',
+      'north-west': 'Rustenburg',
+      'northern-cape': 'Kimberley'
+    };
+    const finalCity = (rawCity && rawCity.toLowerCase() !== 'johannesburg' && rawCity.toLowerCase() !== 'south africa') ? rawCity : (PROV_DEFAULT_CITIES[finalProv] || 'Johannesburg');
     ad.city = finalCity;
     ad.town = ad.town || finalCity;
     if (rawSuburb) ad.suburb = rawSuburb;
@@ -433,7 +439,7 @@ export function resolveAdGeographyAndCategory(ad: any): void {
     (typeof ad.id === 'string' && (ad.id.startsWith('ad-agent-') || ad.id.startsWith('bot_') || ad.id.startsWith('csv')));
 
   if (isBotOrCsvAd) {
-    if (ad.adminApproved === true || ad.verified === true || ad.isPremium === true || ad.isSponsor === true) {
+    if (ad.adminApproved === true || ad.verified === true || ad.isPremium === true || ad.isSponsor === true || ad.isApproved === true || ad.status === 'active' || ad.status === 'approved') {
       ad.isApproved = true;
       ad.status = 'approved';
       ad.approvalStatus = 'approved';

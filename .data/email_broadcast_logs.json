@@ -1,0 +1,15 @@
+[
+  {
+    "id": "broadcast_1792342120043_aofs0",
+    "timestamp": "2026-10-18T16:48:40.043Z",
+    "from": "admin@searchbiz.co.za",
+    "subject": "Test Broadcast Verification",
+    "targetType": "test_preview",
+    "totalRecipients": 1,
+    "sentCount": 1,
+    "status": "COMPLETED",
+    "sampleRecipients": [
+      "admin@searchbiz.co.za"
+    ]
+  }
+]

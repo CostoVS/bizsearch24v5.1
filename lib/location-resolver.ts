@@ -12,6 +12,7 @@ import {
   NORTHERN_CAPE_SUBURBS,
   ALL_SUBURB_MAPS
 } from './locations';
+import saAreasDb from '../public/sa_areas_database.json';
 
 export interface LocationMatchResult {
   isLocation: boolean;
@@ -235,6 +236,66 @@ const FAST_SUBURB_MAP = new Map<string, IndexedSuburbEntry>();
 const FAST_POSTAL_MAP = new Map<string, IndexedSuburbEntry>();
 const RESULT_LRU_CACHE = new Map<string, LocationMatchResult>();
 
+export function getProvinceFromPostalCode(code?: string): { slug: string; name: string } | null {
+  if (!code) return null;
+  const clean = String(code).trim();
+  if (!/^\d{4}$/.test(clean)) return null;
+  const n = parseInt(clean, 10);
+  if (isNaN(n) || n <= 0 || n > 9999) return null;
+  // Exclude common year numbers
+  if (n >= 2024 && n <= 2027) return null;
+
+  // 1. Gauteng: 0001-0299, 1400-2199
+  if ((n >= 1 && n <= 299) || (n >= 1400 && n <= 2199)) {
+    return { slug: 'gauteng', name: 'Gauteng' };
+  }
+  // 2. KwaZulu-Natal: 2900-4499, 4500-4730
+  if ((n >= 2900 && n <= 4499) || (n >= 4500 && n <= 4730)) {
+    return { slug: 'kwazulu-natal', name: 'KwaZulu-Natal' };
+  }
+  // 3. Eastern Cape: 4731-6499
+  if (n >= 4731 && n <= 6499) {
+    return { slug: 'eastern-cape', name: 'Eastern Cape' };
+  }
+  // 4. Western Cape: 6500-8099
+  if (n >= 6500 && n <= 8099) {
+    return { slug: 'western-cape', name: 'Western Cape' };
+  }
+  // 5. Northern Cape / Western Cape border: 8100-8299
+  if (n >= 8100 && n <= 8299) {
+    if (n >= 8240 && n <= 8290) return { slug: 'northern-cape', name: 'Northern Cape' };
+    return { slug: 'western-cape', name: 'Western Cape' };
+  }
+  // 6. Northern Cape: 8300-8999
+  if (n >= 8300 && n <= 8999) {
+    return { slug: 'northern-cape', name: 'Northern Cape' };
+  }
+  // 7. Free State: 9300-9999
+  if (n >= 9300 && n <= 9999) {
+    return { slug: 'free-state', name: 'Free State' };
+  }
+  // 8. Mpumalanga: 1000-1399, 2200-2499
+  if ((n >= 1000 && n <= 1399) || (n >= 2200 && n <= 2499)) {
+    return { slug: 'mpumalanga', name: 'Mpumalanga' };
+  }
+  // 9. North West: 2500-2899
+  if (n >= 2500 && n <= 2899) {
+    return { slug: 'north-west', name: 'North West' };
+  }
+  // 10. Limpopo: 0500-0999
+  if (n >= 500 && n <= 999) {
+    return { slug: 'limpopo', name: 'Limpopo' };
+  }
+  // 11. 0300-0499: North West & Limpopo border
+  if (n >= 300 && n <= 499) {
+    if (n === 480 || n === 470 || n === 450 || n === 432 || n === 458) {
+      return { slug: 'limpopo', name: 'Limpopo' };
+    }
+    return { slug: 'north-west', name: 'North West' };
+  }
+  return null;
+}
+
 (function buildFastLocationLookupMaps() {
   for (const prov of SA_PROVINCES) {
     if (prov.slug !== 'national') {
@@ -254,13 +315,17 @@ const RESULT_LRU_CACHE = new Map<string, LocationMatchResult>();
         });
       }
       if (pCode && !FAST_POSTAL_MAP.has(pCode)) {
-        FAST_POSTAL_MAP.set(pCode, {
-          suburb: '',
-          town: tName,
-          province: prov.name,
-          provinceSlug: prov.slug,
-          postalCode: pCode
-        });
+        const official = getProvinceFromPostalCode(pCode);
+        // Only index in postal map if province matches official SAPO postal code range
+        if (!official || official.slug === prov.slug) {
+          FAST_POSTAL_MAP.set(pCode, {
+            suburb: '',
+            town: tName,
+            province: prov.name,
+            provinceSlug: prov.slug,
+            postalCode: pCode
+          });
+        }
       }
     }
   }
@@ -344,6 +409,49 @@ const RESULT_LRU_CACHE = new Map<string, LocationMatchResult>();
             postalCode: sub.postalCode
           });
         }
+      }
+    }
+  }
+
+  // Index all 6,931 suburbs & official postal codes from the official SA database
+  if (saAreasDb && Array.isArray((saAreasDb as any).suburbs)) {
+    for (const item of (saAreasDb as any).suburbs) {
+      if (!item || !item.name) continue;
+      const sName = String(item.name).trim();
+      const sLower = sName.toLowerCase();
+      const tName = String(item.town || '').trim();
+      const tLower = tName.toLowerCase();
+      const pSlug = String(item.provinceSlug || '').trim();
+      const pName = String(item.province || '').trim();
+      const pCode = String(item.postalCode || '').trim();
+
+      if (tName && !FAST_TOWN_MAP.has(tLower)) {
+        FAST_TOWN_MAP.set(tLower, {
+          town: tName,
+          province: pName,
+          provinceSlug: pSlug,
+          postalCode: pCode
+        });
+      }
+
+      if (!FAST_SUBURB_MAP.has(sLower)) {
+        FAST_SUBURB_MAP.set(sLower, {
+          suburb: sName,
+          town: tName,
+          province: pName,
+          provinceSlug: pSlug,
+          postalCode: pCode
+        });
+      }
+
+      if (pCode && !FAST_POSTAL_MAP.has(pCode)) {
+        FAST_POSTAL_MAP.set(pCode, {
+          suburb: sName,
+          town: tName,
+          province: pName,
+          provinceSlug: pSlug,
+          postalCode: pCode
+        });
       }
     }
   }
@@ -581,142 +689,197 @@ export function resolveExactSouthAfricanLocation(input: {
   const rawAddr = (input.address || '').trim();
   const rawTitle = (input.title || '').trim();
   const rawPhone = (input.phone || input.telephone || input.whatsapp || '').trim();
-  const combinedText = `${rawTitle} ${rawAddr} ${rawCity} ${rawSuburb} ${rawPostal} ${rawPhone}`.toLowerCase();
 
+  // 1. Authoritative Postal Code Extraction
   let postalCandidate = '';
   if (/^\d{4}$/.test(rawPostal)) {
     postalCandidate = rawPostal;
-  } else {
-    const match = combinedText.match(/(?:^|[\s,(\-])(\d{4})(?:$|[\s,)\-])/);
-    if (match && match[1]) {
-      const codeNum = parseInt(match[1], 10);
-      if (FAST_POSTAL_MAP.has(match[1]) || (codeNum >= 1 && codeNum <= 9999 && (codeNum < 2020 || codeNum > 2030))) {
-        postalCandidate = match[1];
+  } else if (/^\d{1,3}$/.test(rawPostal)) {
+    // Excel strips leading zeros, e.g. "81" -> "0081" (Pretoria), "1" -> "0001"
+    postalCandidate = rawPostal.padStart(4, '0');
+  } else if (rawAddr) {
+    // Look for 4 digits in the address string (e.g. "Durban, 4001", "Cape Town 8001")
+    const addrMatches = rawAddr.match(/(?:^|[\s,(\-])(\d{4})(?:$|[\s,)\-])/g);
+    if (addrMatches) {
+      for (const m of addrMatches) {
+        const cleanedDigits = m.replace(/\D/g, '');
+        if (cleanedDigits && getProvinceFromPostalCode(cleanedDigits)) {
+          postalCandidate = cleanedDigits;
+          break;
+        }
       }
     }
   }
 
-  // 1. If 4-digit postal code is verified, use it to accurately anchor the exact suburb and town
-  if (postalCandidate && FAST_POSTAL_MAP.has(postalCandidate)) {
-    const pEntry = FAST_POSTAL_MAP.get(postalCandidate)!;
-    const finalSuburb = rawSuburb || pEntry.suburb || '';
-    const finalTown = rawCity || pEntry.town || 'Johannesburg';
-    return {
-      provinceSlug: pEntry.provinceSlug,
-      provinceName: pEntry.province,
-      city: finalTown,
-      town: finalTown,
-      suburb: finalSuburb,
-      postalCode: postalCandidate
-    };
+  // 2. Authoritative Official Province Anchor from Postal Code
+  const officialProvFromPostal = postalCandidate ? getProvinceFromPostalCode(postalCandidate) : null;
+
+  let explicitProvSlug = '';
+  let explicitProvName = '';
+
+  if (rawProv && rawProv !== 'all' && rawProv !== 'national') {
+    const pHit = FAST_PROVINCE_MAP.get(rawProv);
+    if (pHit) {
+      explicitProvSlug = pHit.slug;
+      explicitProvName = pHit.name;
+    }
   }
 
-  // 2. If a suburb was provided or present in combined text, look up in FAST_SUBURB_MAP
+  let targetProvSlug = officialProvFromPostal ? officialProvFromPostal.slug : explicitProvSlug;
+  let targetProvName = officialProvFromPostal ? officialProvFromPostal.name : explicitProvName;
+
+  const PROV_DEFAULTS: Record<string, { town: string; postal: string; name: string }> = {
+    'gauteng': { town: 'Johannesburg', postal: '2000', name: 'Gauteng' },
+    'kwazulu-natal': { town: 'Durban', postal: '4001', name: 'KwaZulu-Natal' },
+    'western-cape': { town: 'Cape Town', postal: '8001', name: 'Western Cape' },
+    'eastern-cape': { town: 'Gqeberha', postal: '6001', name: 'Eastern Cape' },
+    'free-state': { town: 'Bloemfontein', postal: '9301', name: 'Free State' },
+    'limpopo': { town: 'Polokwane', postal: '0700', name: 'Limpopo' },
+    'mpumalanga': { town: 'Mbombela', postal: '1200', name: 'Mpumalanga' },
+    'north-west': { town: 'Rustenburg', postal: '0300', name: 'North West' },
+    'northern-cape': { town: 'Kimberley', postal: '8300', name: 'Northern Cape' },
+  };
+
+  // 3. If 4-digit postal code is verified in FAST_POSTAL_MAP
+  if (postalCandidate && FAST_POSTAL_MAP.has(postalCandidate)) {
+    const pEntry = FAST_POSTAL_MAP.get(postalCandidate)!;
+    if (!officialProvFromPostal || pEntry.provinceSlug === officialProvFromPostal.slug) {
+      const finalProvSlug = pEntry.provinceSlug;
+      const finalProvName = pEntry.province;
+      const finalTown = rawCity && rawCity.toLowerCase() !== 'johannesburg' ? rawCity : (pEntry.town || PROV_DEFAULTS[finalProvSlug]?.town || 'Johannesburg');
+      const finalSuburb = rawSuburb || pEntry.suburb || '';
+      return {
+        provinceSlug: finalProvSlug,
+        provinceName: finalProvName,
+        city: finalTown,
+        town: finalTown,
+        suburb: finalSuburb,
+        postalCode: postalCandidate
+      };
+    }
+  }
+
+  // 4. If city/town is provided, check FAST_TOWN_MAP first
+  if (rawCity) {
+    const cLower = rawCity.toLowerCase().replace(/['"`]/g, '').trim();
+    if (FAST_TOWN_MAP.has(cLower)) {
+      const tEntry = FAST_TOWN_MAP.get(cLower)!;
+      // If official postal code is present, ensure it doesn't conflict; otherwise town is definitive
+      if (!officialProvFromPostal || tEntry.provinceSlug === officialProvFromPostal.slug) {
+        return {
+          provinceSlug: tEntry.provinceSlug,
+          provinceName: tEntry.province,
+          city: tEntry.town,
+          town: tEntry.town,
+          suburb: rawSuburb,
+          postalCode: postalCandidate || tEntry.postalCode || ''
+        };
+      }
+    }
+  }
+
+  // 5. If suburb is provided, check FAST_SUBURB_MAP
   if (rawSuburb) {
     const sLower = rawSuburb.toLowerCase().replace(/['"`]/g, '').trim();
     if (FAST_SUBURB_MAP.has(sLower)) {
       const sEntry = FAST_SUBURB_MAP.get(sLower)!;
-      return {
-        provinceSlug: sEntry.provinceSlug,
-        provinceName: sEntry.province,
-        city: rawCity || sEntry.town,
-        town: rawCity || sEntry.town,
-        suburb: sEntry.suburb,
-        postalCode: postalCandidate || sEntry.postalCode || ''
-      };
+      if (!officialProvFromPostal || sEntry.provinceSlug === officialProvFromPostal.slug) {
+        return {
+          provinceSlug: sEntry.provinceSlug,
+          provinceName: sEntry.province,
+          city: rawCity || sEntry.town,
+          town: rawCity || sEntry.town,
+          suburb: rawSuburb || sEntry.suburb,
+          postalCode: postalCandidate || sEntry.postalCode || ''
+        };
+      }
     }
   }
 
-  // 3. Scan combined text for any known suburb in FAST_SUBURB_MAP
-  for (const [subKey, sEntry] of FAST_SUBURB_MAP.entries()) {
-    if (subKey.length >= 4 && combinedText.includes(subKey)) {
-      return {
-        provinceSlug: sEntry.provinceSlug,
-        provinceName: sEntry.province,
-        city: rawCity || sEntry.town,
-        town: rawCity || sEntry.town,
-        suburb: sEntry.suburb,
-        postalCode: postalCandidate || sEntry.postalCode || ''
-      };
-    }
-  }
+  // 6. Address & text token matching with word boundaries
+  const combinedText = `${rawAddr} ${rawTitle} ${rawCity} ${rawSuburb}`.toLowerCase();
+  const GENERIC_STOP_WORDS = new Set(['park', 'road', 'street', 'main', 'glen', 'view', 'hill', 'west', 'east', 'north', 'south', 'central', 'farm', 'town', 'ridge', 'point', 'side', 'lane', 'court', 'auto', 'tech', 'club', 'cafe', 'shop']);
 
-  // 4. Scan combined text for any known town in FAST_TOWN_MAP
+  // Check towns in address text
   for (const [townKey, tEntry] of FAST_TOWN_MAP.entries()) {
-    if (townKey.length >= 4 && combinedText.includes(townKey)) {
-      return {
-        provinceSlug: tEntry.provinceSlug,
-        provinceName: tEntry.province,
-        city: tEntry.town,
-        town: tEntry.town,
-        suburb: rawSuburb,
-        postalCode: postalCandidate || tEntry.postalCode || ''
-      };
+    if (townKey.length >= 4 && !GENERIC_STOP_WORDS.has(townKey)) {
+      if (new RegExp(`\\b${townKey.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i').test(combinedText)) {
+        if (!officialProvFromPostal || tEntry.provinceSlug === officialProvFromPostal.slug) {
+          return {
+            provinceSlug: tEntry.provinceSlug,
+            provinceName: tEntry.province,
+            city: tEntry.town,
+            town: tEntry.town,
+            suburb: rawSuburb,
+            postalCode: postalCandidate || tEntry.postalCode || ''
+          };
+        }
+      }
     }
   }
 
-  // 5. Check phone area code from rawPhone
+  // Check suburbs in address text
+  for (const [subKey, sEntry] of FAST_SUBURB_MAP.entries()) {
+    if (subKey.length >= 5 && !GENERIC_STOP_WORDS.has(subKey)) {
+      if (new RegExp(`\\b${subKey.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i').test(combinedText)) {
+        if (!officialProvFromPostal || sEntry.provinceSlug === officialProvFromPostal.slug) {
+          return {
+            provinceSlug: sEntry.provinceSlug,
+            provinceName: sEntry.province,
+            city: rawCity || sEntry.town,
+            town: rawCity || sEntry.town,
+            suburb: rawSuburb || sEntry.suburb,
+            postalCode: postalCandidate || sEntry.postalCode || ''
+          };
+        }
+      }
+    }
+  }
+
+  // 7. Area code from phone number
   const cleanPh = rawPhone.replace(/\D/g, '');
-  if (cleanPh.startsWith('039') || cleanPh.startsWith('2739')) {
-    return { provinceSlug: 'kwazulu-natal', provinceName: 'KwaZulu-Natal', city: 'Umkomaas', town: 'Umkomaas', suburb: rawSuburb || 'Umkomaas', postalCode: postalCandidate || '4170' };
-  }
-  if (cleanPh.startsWith('031') || cleanPh.startsWith('2731')) {
-    return { provinceSlug: 'kwazulu-natal', provinceName: 'KwaZulu-Natal', city: 'Durban', town: 'Durban', suburb: rawSuburb, postalCode: postalCandidate || '4001' };
-  }
-  if (cleanPh.startsWith('021') || cleanPh.startsWith('2721')) {
-    return { provinceSlug: 'western-cape', provinceName: 'Western Cape', city: 'Cape Town', town: 'Cape Town', suburb: rawSuburb, postalCode: postalCandidate || '8001' };
-  }
-  if (cleanPh.startsWith('041') || cleanPh.startsWith('2741')) {
-    return { provinceSlug: 'eastern-cape', provinceName: 'Eastern Cape', city: 'Gqeberha', town: 'Gqeberha', suburb: rawSuburb, postalCode: postalCandidate || '6001' };
-  }
-  if (cleanPh.startsWith('051') || cleanPh.startsWith('2751')) {
-    return { provinceSlug: 'free-state', provinceName: 'Free State', city: 'Bloemfontein', town: 'Bloemfontein', suburb: rawSuburb, postalCode: postalCandidate || '9301' };
-  }
-  if (cleanPh.startsWith('015') || cleanPh.startsWith('2715')) {
-    return { provinceSlug: 'limpopo', provinceName: 'Limpopo', city: 'Polokwane', town: 'Polokwane', suburb: rawSuburb, postalCode: postalCandidate || '0700' };
-  }
-  if (cleanPh.startsWith('013') || cleanPh.startsWith('2713') || cleanPh.startsWith('017') || cleanPh.startsWith('2717')) {
-    return { provinceSlug: 'mpumalanga', provinceName: 'Mpumalanga', city: 'Mbombela', town: 'Mbombela', suburb: rawSuburb, postalCode: postalCandidate || '1200' };
-  }
-  if (cleanPh.startsWith('018') || cleanPh.startsWith('2718') || cleanPh.startsWith('014') || cleanPh.startsWith('2714')) {
-    return { provinceSlug: 'north-west', provinceName: 'North West', city: 'Rustenburg', town: 'Rustenburg', suburb: rawSuburb, postalCode: postalCandidate || '0300' };
-  }
-  if (cleanPh.startsWith('053') || cleanPh.startsWith('2753') || cleanPh.startsWith('054') || cleanPh.startsWith('2754')) {
-    return { provinceSlug: 'northern-cape', provinceName: 'Northern Cape', city: 'Kimberley', town: 'Kimberley', suburb: rawSuburb, postalCode: postalCandidate || '8300' };
-  }
-  if (cleanPh.startsWith('011') || cleanPh.startsWith('2711') || cleanPh.startsWith('012') || cleanPh.startsWith('2712') || cleanPh.startsWith('016') || cleanPh.startsWith('2716')) {
-    return { provinceSlug: 'gauteng', provinceName: 'Gauteng', city: cleanPh.startsWith('012') ? 'Pretoria' : 'Johannesburg', town: cleanPh.startsWith('012') ? 'Pretoria' : 'Johannesburg', suburb: rawSuburb, postalCode: postalCandidate || '2000' };
-  }
-
-  // 6. Look up province
-  let provSlug = 'gauteng';
-  let provName = 'Gauteng';
-  if (rawProv) {
-    const provHit = FAST_PROVINCE_MAP.get(rawProv);
-    if (provHit) {
-      provSlug = provHit.slug;
-      provName = provHit.name;
+  if (!targetProvSlug) {
+    if (cleanPh.startsWith('039') || cleanPh.startsWith('2739')) {
+      targetProvSlug = 'kwazulu-natal';
+      targetProvName = 'KwaZulu-Natal';
+    } else if (cleanPh.startsWith('031') || cleanPh.startsWith('2731')) {
+      targetProvSlug = 'kwazulu-natal';
+      targetProvName = 'KwaZulu-Natal';
+    } else if (cleanPh.startsWith('021') || cleanPh.startsWith('2721')) {
+      targetProvSlug = 'western-cape';
+      targetProvName = 'Western Cape';
+    } else if (cleanPh.startsWith('041') || cleanPh.startsWith('2741')) {
+      targetProvSlug = 'eastern-cape';
+      targetProvName = 'Eastern Cape';
+    } else if (cleanPh.startsWith('051') || cleanPh.startsWith('2751')) {
+      targetProvSlug = 'free-state';
+      targetProvName = 'Free State';
+    } else if (cleanPh.startsWith('015') || cleanPh.startsWith('2715')) {
+      targetProvSlug = 'limpopo';
+      targetProvName = 'Limpopo';
+    } else if (cleanPh.startsWith('013') || cleanPh.startsWith('2713') || cleanPh.startsWith('017') || cleanPh.startsWith('2717')) {
+      targetProvSlug = 'mpumalanga';
+      targetProvName = 'Mpumalanga';
+    } else if (cleanPh.startsWith('018') || cleanPh.startsWith('2718') || cleanPh.startsWith('014') || cleanPh.startsWith('2714')) {
+      targetProvSlug = 'north-west';
+      targetProvName = 'North West';
+    } else if (cleanPh.startsWith('053') || cleanPh.startsWith('2753') || cleanPh.startsWith('054') || cleanPh.startsWith('2754')) {
+      targetProvSlug = 'northern-cape';
+      targetProvName = 'Northern Cape';
+    } else if (cleanPh.startsWith('011') || cleanPh.startsWith('2711') || cleanPh.startsWith('012') || cleanPh.startsWith('2712') || cleanPh.startsWith('016') || cleanPh.startsWith('2716')) {
+      targetProvSlug = 'gauteng';
+      targetProvName = 'Gauteng';
     }
   }
 
-  const PROV_DEFAULTS: Record<string, { town: string; postal: string }> = {
-    'gauteng': { town: 'Johannesburg', postal: '2000' },
-    'kwazulu-natal': { town: 'Durban', postal: '4000' },
-    'western-cape': { town: 'Cape Town', postal: '8000' },
-    'eastern-cape': { town: 'Gqeberha', postal: '6000' },
-    'free-state': { town: 'Bloemfontein', postal: '9300' },
-    'limpopo': { town: 'Polokwane', postal: '0700' },
-    'mpumalanga': { town: 'Mbombela', postal: '1200' },
-    'north-west': { town: 'Rustenburg', postal: '0300' },
-    'northern-cape': { town: 'Kimberley', postal: '8300' },
-  };
-
-  const def = PROV_DEFAULTS[provSlug] || PROV_DEFAULTS['gauteng'];
+  const finalProvSlug = targetProvSlug || 'gauteng';
+  const def = PROV_DEFAULTS[finalProvSlug] || PROV_DEFAULTS['gauteng'];
+  const finalProvName = targetProvName || def.name;
   const finalCity = rawCity || def.town;
 
   return {
-    provinceSlug: provSlug,
-    provinceName: provName,
+    provinceSlug: finalProvSlug,
+    provinceName: finalProvName,
     city: finalCity,
     town: finalCity,
     suburb: rawSuburb,

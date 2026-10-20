@@ -779,7 +779,7 @@ export const TOWN_POSTAL_CODES: Record<string, string> = {
   "Ashburton": "3213",
   "Askeaton": "5413",
   "Astra Park": "4126",
-  "Athlone": "3201",
+  "Athlone": "7764",
   "Athlone Park": "4126",
   "Atlantis": "7353",
   "Atteridgeville": "0089",
@@ -920,7 +920,7 @@ export const TOWN_POSTAL_CODES: Record<string, string> = {
   "Coville": "9759",
   "Cowies Hill": "3610",
   "Cradock": "5880",
-  "Craigie Burn": "3300",
+  "Craigie Burn": "4170",
   "Craigieburn": "4170",
   "Creighton": "3263",
   "Cullinan": "1000",
@@ -1022,7 +1022,7 @@ export const TOWN_POSTAL_CODES: Record<string, string> = {
   "Ewatsini": "2940",
   "Excelsior": "9760",
   "Ezakheni": "3381",
-  "Faerie Glen": "4275",
+  "Faerie Glen": "0081",
   "Fairground": "3201",
   "Fairview": "4220",
   "Fairview Mission": "4220",
@@ -5521,6 +5521,10 @@ export const KZN_SUBURBS: Record<string, SuburbInfo[]> = {
     },
     {
       "name": "Craigieburn",
+      "postalCode": "4170"
+    },
+    {
+      "name": "Craigie Burn",
       "postalCode": "4170"
     },
     {

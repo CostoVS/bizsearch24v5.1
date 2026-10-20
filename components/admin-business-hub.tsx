@@ -30,7 +30,12 @@ import {
   SendHorizontal,
   History,
   Copy,
-  SlidersHorizontal
+  SlidersHorizontal,
+  CheckSquare,
+  Square,
+  Users,
+  UserCheck,
+  Download
 } from "lucide-react";
 import { SA_PROVINCES, getPostalCodeForTown } from "@/lib/locations";
 import { CATEGORIES } from "@/lib/categories";
@@ -108,17 +113,28 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   // Navigation within Hub
   const [activeSubTab, setActiveSubTab] = useState<"directory" | "email" | "logs">("directory");
 
+  // Server-loaded full dataset
+  const [serverBusinesses, setServerBusinesses] = useState<BusinessRecord[]>(ads);
+  const [isLoadingAllBusinesses, setIsLoadingAllBusinesses] = useState(false);
+
   // Filter States for Directory
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedProvince, setSelectedProvince] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedSuburb, setSelectedSuburb] = useState("all");
   const [filterHasEmailOnly, setFilterHasEmailOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"name_asc" | "name_desc" | "category" | "province" | "postal" | "email_first">("name_asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+
+  // Selection states for selective emailing
+  const [selectedBusinessIds, setSelectedBusinessIds] = useState<Set<string>>(new Set());
+  const [excludedRecipientEmails, setExcludedRecipientEmails] = useState<Set<string>>(new Set());
+  const [recipientSearchQuery, setRecipientSearchQuery] = useState("");
 
   // Column / Detail Visibility Selector state
   const [visibleColumns, setVisibleColumns] = useState({
+    address: true,
     email: true,
     website: true,
     whatsapp: true,
@@ -130,12 +146,13 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
     description: false
   });
   const [showColumnSelector, setShowColumnSelector] = useState(false);
+  const [copiedToast, setCopiedToast] = useState<string | null>(null);
 
   // Selected Business for Detail Modal
   const [activeBusinessModal, setActiveBusinessModal] = useState<BusinessRecord | null>(null);
 
   // Email Composer States
-  const [emailTargetType, setEmailTargetType] = useState<"all" | "province" | "category" | "single">("all");
+  const [emailTargetType, setEmailTargetType] = useState<"selected" | "all" | "province" | "category" | "single">("all");
   const [emailTargetProvince, setEmailTargetProvince] = useState("gauteng");
   const [emailTargetCategory, setEmailTargetCategory] = useState(CATEGORIES[0] || "Building & Trades");
   const [emailSingleTarget, setEmailSingleTarget] = useState<BusinessRecord | null>(null);
@@ -152,6 +169,130 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [isTestingSmtp, setIsTestingSmtp] = useState(false);
   const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Export full extracted businesses to CSV
+  const handleExportCsv = (list: BusinessRecord[], filename = "SearchBiz_Extracted_Businesses.csv") => {
+    if (!list || list.length === 0) {
+      alert("No businesses available to export.");
+      return;
+    }
+    const headers = [
+      "Company Name",
+      "Email Address",
+      "Phone Number",
+      "Telephone",
+      "WhatsApp",
+      "Physical Street Address",
+      "Suburb",
+      "City/Town",
+      "Postal Code",
+      "Province",
+      "Category",
+      "Category Code",
+      "Website",
+      "Trading Hours",
+      "Services Offered",
+      "Description"
+    ];
+    const escapeCsv = (val: any) => {
+      if (val === undefined || val === null) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+    const rows = list.map(b => [
+      escapeCsv(b.title || ""),
+      escapeCsv(b.email || ""),
+      escapeCsv(b.phone || ""),
+      escapeCsv(b.telephone || ""),
+      escapeCsv(b.whatsapp || ""),
+      escapeCsv(b.address || ""),
+      escapeCsv(b.suburb || ""),
+      escapeCsv(b.city || b.town || ""),
+      escapeCsv(b.postalCode || getPostalCodeForTown(b.city || b.town || "") || ""),
+      escapeCsv(b.province || ""),
+      escapeCsv(b.category || ""),
+      escapeCsv(b.categoryCode || ""),
+      escapeCsv(b.website || ""),
+      escapeCsv(b.tradingHours || ""),
+      escapeCsv(b.servicesOffered || ""),
+      escapeCsv(b.description || "")
+    ].join(","));
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Copy all unique valid emails to clipboard formatted for email clients
+  const handleCopyEmails = (list: BusinessRecord[]) => {
+    const emails = Array.from(
+      new Set(
+        list
+          .map(b => (b.email || "").trim())
+          .filter(e => e && e.includes("@"))
+      )
+    );
+    if (emails.length === 0) {
+      alert("No email addresses found in these listings.");
+      return;
+    }
+    const text = emails.join(", ");
+    navigator.clipboard.writeText(text);
+    setCopiedToast(`Copied ${emails.length.toLocaleString()} email addresses to clipboard!`);
+    setTimeout(() => setCopiedToast(null), 4000);
+  };
+
+  // Load complete businesses database without 50-limit
+  const loadAllServerBusinesses = async () => {
+    setIsLoadingAllBusinesses(true);
+    try {
+      const res = await fetch("/api/storage?includeInactive=true&full=true&noLimit=true", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.ads)) {
+          setServerBusinesses(data.ads);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load all businesses for business hub:", e);
+    } finally {
+      setIsLoadingAllBusinesses(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAllServerBusinesses();
+  }, []);
+
+  useEffect(() => {
+    if (ads && ads.length > 0 && (!serverBusinesses || serverBusinesses.length === 0)) {
+      setServerBusinesses(ads);
+    }
+  }, [ads]);
+
+  const baseBusinesses = useMemo(() => {
+    return serverBusinesses.length > 0 ? serverBusinesses : (ads || []);
+  }, [serverBusinesses, ads]);
+
+  // Extract all unique Suburbs and Towns for the selected province
+  const availableSuburbs = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of baseBusinesses) {
+      if (selectedProvince !== "all" && (b.province || "").toLowerCase() !== selectedProvince.toLowerCase()) {
+        continue;
+      }
+      if (b.suburb && b.suburb.trim()) set.add(b.suburb.trim());
+      else if (b.city && b.city.trim()) set.add(b.city.trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [baseBusinesses, selectedProvince]);
 
   const handleTestSmtp = async () => {
     setIsTestingSmtp(true);
@@ -208,7 +349,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
 
   // Filtered & Sorted Businesses List
   const filteredBusinesses = useMemo(() => {
-    let result = ads || [];
+    let result = baseBusinesses;
 
     if (filterHasEmailOnly) {
       result = result.filter(b => b.email && b.email.includes("@"));
@@ -220,6 +361,16 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
 
     if (selectedCategory !== "all") {
       result = result.filter(b => (b.category || "").toLowerCase() === selectedCategory.toLowerCase());
+    }
+
+    if (selectedSuburb !== "all") {
+      const sLower = selectedSuburb.toLowerCase().trim();
+      result = result.filter(b =>
+        (b.suburb || "").toLowerCase().trim() === sLower ||
+        (b.city || "").toLowerCase().trim() === sLower ||
+        (b.town || "").toLowerCase().trim() === sLower ||
+        (b.address || "").toLowerCase().includes(sLower)
+      );
     }
 
     if (searchTerm.trim()) {
@@ -267,16 +418,20 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
     });
 
     return result;
-  }, [ads, searchTerm, selectedProvince, selectedCategory, filterHasEmailOnly, sortBy]);
+  }, [baseBusinesses, searchTerm, selectedProvince, selectedCategory, selectedSuburb, filterHasEmailOnly, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filteredBusinesses.length / itemsPerPage));
   const safePage = Math.min(Math.max(1, currentPage), totalPages);
   const paginatedBusinesses = filteredBusinesses.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
   // Recipient Target List Calculation for Email Broadcaster
-  const emailTargetRecipients = useMemo(() => {
-    const listWithEmail = (ads || []).filter(b => b.email && b.email.includes("@"));
+  const rawCandidateRecipients = useMemo(() => {
+    const listWithEmail = baseBusinesses.filter(b => b.email && b.email.includes("@"));
 
+    if (emailTargetType === "selected") {
+      if (selectedBusinessIds.size === 0) return listWithEmail;
+      return listWithEmail.filter(b => selectedBusinessIds.has(b.id));
+    }
     if (emailTargetType === "all") {
       return listWithEmail;
     }
@@ -305,7 +460,24 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
       return [];
     }
     return [];
-  }, [ads, emailTargetType, emailTargetProvince, emailTargetCategory, emailSingleTarget, manualSingleEmail, manualSingleName]);
+  }, [baseBusinesses, emailTargetType, selectedBusinessIds, emailTargetProvince, emailTargetCategory, emailSingleTarget, manualSingleEmail, manualSingleName]);
+
+  // Excluded recipients can be unchecked by user!
+  const finalActiveRecipients = useMemo(() => {
+    return rawCandidateRecipients.filter(b => !excludedRecipientEmails.has((b.email || "").toLowerCase().trim()));
+  }, [rawCandidateRecipients, excludedRecipientEmails]);
+
+  // Filtered recipient list for display in the selection hub
+  const displayedCandidateRecipients = useMemo(() => {
+    if (!recipientSearchQuery.trim()) return rawCandidateRecipients;
+    const q = recipientSearchQuery.toLowerCase().trim();
+    return rawCandidateRecipients.filter(b =>
+      (b.title || "").toLowerCase().includes(q) ||
+      (b.email || "").toLowerCase().includes(q) ||
+      (b.city || "").toLowerCase().includes(q) ||
+      (b.suburb || "").toLowerCase().includes(q)
+    );
+  }, [rawCandidateRecipients, recipientSearchQuery]);
 
   // Handle template selection
   const handleSelectTemplate = (templateId: string) => {
@@ -331,6 +503,13 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
     setActiveSubTab("email");
   };
 
+  // Switch to email tab targeting selected businesses
+  const handleTargetSelectedBusinesses = () => {
+    setEmailTargetType("selected");
+    setExcludedRecipientEmails(new Set());
+    setActiveSubTab("email");
+  };
+
   // Execute Email Dispatch
   const handleSendBroadcast = async (isTest: boolean = false) => {
     if (!emailSubject.trim()) {
@@ -342,14 +521,14 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
       return;
     }
 
-    if (!isTest && emailTargetRecipients.length === 0) {
-      alert("There are no valid recipient email addresses found in the selected target group. Please adjust your target filter.");
+    if (!isTest && finalActiveRecipients.length === 0) {
+      alert("There are no active recipient email addresses selected. Please check at least 1 recipient.");
       return;
     }
 
     const confirmMsg = isTest
       ? `Send test preview email to ${SENDER_EMAIL}?`
-      : `Are you sure you want to send this email to ${emailTargetRecipients.length.toLocaleString()} business(es) from ${SENDER_EMAIL}?`;
+      : `Are you sure you want to send this email to ${finalActiveRecipients.length.toLocaleString()} business(es) from ${SENDER_EMAIL}?`;
 
     if (!confirm(confirmMsg)) return;
 
@@ -367,10 +546,12 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
             ? emailTargetCategory
             : emailTargetType === "single"
             ? (emailSingleTarget?.title || manualSingleEmail)
+            : emailTargetType === "selected"
+            ? `Selected Businesses (${finalActiveRecipients.length})`
             : "All Businesses",
         subject: emailSubject,
         messageBody: emailBody,
-        recipients: emailTargetRecipients.map(b => ({
+        recipients: finalActiveRecipients.map(b => ({
           email: b.email,
           businessName: b.title,
           city: b.city || b.town,
@@ -411,9 +592,9 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
     }
   };
 
-  const totalIndexed = ads.length;
-  const totalWithEmail = ads.filter(b => b.email && b.email.includes("@")).length;
-  const totalVerified = ads.filter(b => b.verified === true || b.isVerified === true).length;
+  const totalIndexed = baseBusinesses.length;
+  const totalWithEmail = baseBusinesses.filter(b => b.email && b.email.includes("@")).length;
+  const totalVerified = baseBusinesses.filter(b => b.verified === true || b.isVerified === true).length;
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
@@ -559,9 +740,9 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
         <div className="space-y-4">
           {/* Filter Bar */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
               {/* Search */}
-              <div className="md:col-span-2 relative">
+              <div className="lg:col-span-2 relative">
                 <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
@@ -589,14 +770,34 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   value={selectedProvince}
                   onChange={(e) => {
                     setSelectedProvince(e.target.value);
+                    setSelectedSuburb("all");
                     setCurrentPage(1);
                   }}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition cursor-pointer"
                 >
-                  <option value="all">All Provinces (South Africa)</option>
+                  <option value="all">All 9 Provinces (SA)</option>
                   {SA_PROVINCES.map((p) => (
                     <option key={p.slug} value={p.slug}>
                       {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Suburb / Town Selector */}
+              <div>
+                <select
+                  value={selectedSuburb}
+                  onChange={(e) => {
+                    setSelectedSuburb(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition cursor-pointer"
+                >
+                  <option value="all">All Suburbs &amp; Towns ({availableSuburbs.length})</option>
+                  {availableSuburbs.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
                     </option>
                   ))}
                 </select>
@@ -612,7 +813,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   }}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition cursor-pointer"
                 >
-                  <option value="all">All Categories</option>
+                  <option value="all">All Categories ({CATEGORIES.length})</option>
                   {CATEGORIES.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -628,12 +829,12 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   onChange={(e) => setSortBy(e.target.value as any)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition cursor-pointer"
                 >
-                  <option value="name_asc">Sort: Name (A to Z)</option>
-                  <option value="name_desc">Sort: Name (Z to A)</option>
+                  <option value="name_asc">Sort: Name (A-Z)</option>
+                  <option value="name_desc">Sort: Name (Z-A)</option>
                   <option value="category">Sort: Category</option>
                   <option value="province">Sort: Province</option>
                   <option value="postal">Sort: Postal Code</option>
-                  <option value="email_first">Sort: Email Verified First</option>
+                  <option value="email_first">Sort: Email First</option>
                 </select>
               </div>
             </div>
@@ -666,28 +867,137 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Choose Columns to View</span>
                 </button>
+
+                {/* Force Reload Full Database Button */}
+                <button
+                  type="button"
+                  disabled={isLoadingAllBusinesses}
+                  onClick={loadAllServerBusinesses}
+                  className="px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                  title="Reload all businesses from server database"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isLoadingAllBusinesses ? "animate-spin" : ""}`} />
+                  <span>{isLoadingAllBusinesses ? "Loading..." : `Reload All DB (${baseBusinesses.length.toLocaleString()})`}</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-3">
                 <span className="text-slate-500 font-medium">
                   Showing <strong className="text-slate-900">{filteredBusinesses.length.toLocaleString()}</strong> businesses
                 </span>
-                                 <select
-                   value={itemsPerPage}
-                   onChange={(e) => {
-                     setItemsPerPage(Number(e.target.value));
-                     setCurrentPage(1);
-                   }}
-                   className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700"
-                 >
-                   <option value={25}>25 per page</option>
-                   <option value={50}>50 per page</option>
-                   <option value={100}>100 per page</option>
-                   <option value={500}>500 per page</option>
-                   <option value={1000}>1000 per page</option>
-                   <option value={99999}>All rows</option>
-                 </select>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 cursor-pointer"
+                >
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                  <option value={500}>500 per page</option>
+                  <option value={1000}>1000 per page</option>
+                  <option value={5000}>5000 per page</option>
+                  <option value={999999}>All rows ({filteredBusinesses.length.toLocaleString()})</option>
+                </select>
               </div>
+            </div>
+
+            {/* Batch Selection Action Deck */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs bg-slate-50/70 p-3 rounded-2xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider mr-1">Select to Email:</span>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(selectedBusinessIds);
+                    paginatedBusinesses.forEach(b => next.add(b.id));
+                    setSelectedBusinessIds(next);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Select Page ({paginatedBusinesses.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(selectedBusinessIds);
+                    filteredBusinesses.forEach(b => next.add(b.id));
+                    setSelectedBusinessIds(next);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Users className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Select Filtered ({filteredBusinesses.length.toLocaleString()})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(selectedBusinessIds);
+                    filteredBusinesses.filter(b => b.email && b.email.includes("@")).forEach(b => next.add(b.id));
+                    setSelectedBusinessIds(next);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 font-bold text-emerald-800 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Mail className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Select with Email ({filteredBusinesses.filter(b => b.email && b.email.includes("@")).length.toLocaleString()})</span>
+                </button>
+
+                {selectedBusinessIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBusinessIds(new Set())}
+                    className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 text-rose-700 font-bold flex items-center gap-1 cursor-pointer shadow-2xs"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Clear Selection</span>
+                  </button>
+                )}
+
+                <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyEmails(selectedBusinessIds.size > 0 ? filteredBusinesses.filter(b => selectedBusinessIds.has(b.id)) : filteredBusinesses)}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Copy email addresses to clipboard"
+                >
+                  <Copy className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Copy Emails {selectedBusinessIds.size > 0 ? `(${selectedBusinessIds.size})` : `(${filteredBusinesses.filter(b => b.email && b.email.includes("@")).length})`}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleExportCsv(selectedBusinessIds.size > 0 ? filteredBusinesses.filter(b => selectedBusinessIds.has(b.id)) : filteredBusinesses)}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Export extracted directory listings to CSV"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Export CSV</span>
+                </button>
+              </div>
+
+              {selectedBusinessIds.size > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-emerald-900 bg-emerald-100/70 px-3 py-1.5 rounded-xl border border-emerald-300 flex items-center gap-1.5 text-xs">
+                    <UserCheck className="w-4 h-4 text-emerald-700" />
+                    <span>{selectedBusinessIds.size.toLocaleString()} selected</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleTargetSelectedBusinesses}
+                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer text-xs"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Compose Email to Selected ({selectedBusinessIds.size.toLocaleString()})</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Column Selector Drawer / Panel */}
@@ -703,6 +1013,15 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                   </button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 text-xs font-medium text-slate-700">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.address}
+                      onChange={(e) => setVisibleColumns({ ...visibleColumns, address: e.target.checked })}
+                      className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+                    />
+                    <span>Street Address</span>
+                  </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -804,8 +1123,26 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
                     <tr>
+                      <th className="py-3 px-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={paginatedBusinesses.length > 0 && paginatedBusinesses.every(b => selectedBusinessIds.has(b.id))}
+                          onChange={(e) => {
+                            const next = new Set(selectedBusinessIds);
+                            if (e.target.checked) {
+                              paginatedBusinesses.forEach(b => next.add(b.id));
+                            } else {
+                              paginatedBusinesses.forEach(b => next.delete(b.id));
+                            }
+                            setSelectedBusinessIds(next);
+                          }}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                          title="Select / Unselect all on this page"
+                        />
+                      </th>
                       <th className="py-3 px-4">Business &amp; Category</th>
                       <th className="py-3 px-4">Location &amp; Province</th>
+                      {visibleColumns.address && <th className="py-3 px-4 min-w-[180px]">Physical Address</th>}
                       {visibleColumns.suburbPostal && <th className="py-3 px-4">Suburb &amp; Postal</th>}
                       {visibleColumns.phone && <th className="py-3 px-4">Phone</th>}
                       {visibleColumns.telephone && <th className="py-3 px-4">Telephone</th>}
@@ -822,9 +1159,25 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                     {paginatedBusinesses.map((b) => {
                       const postal = b.postalCode || getPostalCodeForTown(b.city || b.town || "");
                       const hasEmail = Boolean(b.email && b.email.includes("@"));
+                      const isSelected = selectedBusinessIds.has(b.id);
 
                       return (
-                        <tr key={b.id || Math.random().toString()} className="hover:bg-slate-50/80 transition-colors">
+                        <tr key={b.id || Math.random().toString()} className={`hover:bg-slate-50/80 transition-colors ${isSelected ? "bg-emerald-50/30" : ""}`}>
+                          {/* Row Checkbox */}
+                          <td className="py-3.5 px-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                const next = new Set(selectedBusinessIds);
+                                if (next.has(b.id)) next.delete(b.id);
+                                else next.add(b.id);
+                                setSelectedBusinessIds(next);
+                              }}
+                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                              title="Select this business"
+                            />
+                          </td>
                           {/* Business & Category */}
                           <td className="py-3.5 px-4 min-w-[200px]">
                             <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
@@ -857,6 +1210,19 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                               {b.province || "Gauteng"}
                             </div>
                           </td>
+
+                          {/* Physical Address */}
+                          {visibleColumns.address && (
+                            <td className="py-3.5 px-4 min-w-[180px]">
+                              {b.address ? (
+                                <div className="text-slate-800 text-[11px] leading-snug line-clamp-2" title={b.address}>
+                                  {b.address}
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 text-[10px] italic">Not specified</span>
+                              )}
+                            </td>
+                          )}
 
                           {/* Suburb & Postal */}
                           {visibleColumns.suburbPostal && (
@@ -914,12 +1280,30 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
 
                           {/* Email */}
                           {visibleColumns.email && (
-                            <td className="py-3.5 px-4 min-w-[160px]">
+                            <td className="py-3.5 px-4 min-w-[180px]">
                               {hasEmail ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                  <Mail className="w-3 h-3 text-emerald-600 shrink-0" />
-                                  <span className="truncate max-w-[130px]">{b.email}</span>
-                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <a
+                                    href={`mailto:${b.email}`}
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200 transition"
+                                    title="Open in email client"
+                                  >
+                                    <Mail className="w-3 h-3 text-emerald-600 shrink-0" />
+                                    <span className="truncate max-w-[120px]">{b.email}</span>
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(b.email || "");
+                                      setCopiedToast(`Copied ${b.email} to clipboard!`);
+                                      setTimeout(() => setCopiedToast(null), 3000);
+                                    }}
+                                    className="p-1 rounded text-slate-400 hover:text-emerald-700 hover:bg-slate-100 transition cursor-pointer"
+                                    title="Copy email address"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                  </button>
+                                </div>
                               ) : (
                                 <span className="text-[11px] text-slate-400 italic">No email</span>
                               )}
@@ -968,24 +1352,34 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                           )}
 
                           {/* Actions */}
-                          <td className="py-3.5 px-4 text-right min-w-[150px]">
-                            <div className="flex items-center justify-end gap-2">
+                          <td className="py-3.5 px-4 text-right min-w-[170px]">
+                            <div className="flex items-center justify-end gap-1.5">
                               {hasEmail && (
                                 <button
                                   type="button"
                                   onClick={() => handleTargetSingleBusiness(b)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[11px] flex items-center gap-1 transition border border-emerald-200 cursor-pointer"
-                                  title="Send direct email to this business"
+                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center gap-1 transition shadow-xs cursor-pointer"
+                                  title="Send direct email via Business Hub"
                                 >
-                                  <Send className="w-3 h-3 text-emerald-600" />
-                                  <span>Email</span>
+                                  <Send className="w-3 h-3" />
+                                  <span>Hub Email</span>
                                 </button>
+                              )}
+
+                              {hasEmail && (
+                                <a
+                                  href={`mailto:${b.email}`}
+                                  className="p-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 transition"
+                                  title="Open in your email client (Gmail, Outlook, etc.)"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
                               )}
 
                               <button
                                 type="button"
                                 onClick={() => setActiveBusinessModal(b)}
-                                className="px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
+                                className="px-2 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
                                 title="View all stored details"
                               >
                                 <Eye className="w-3 h-3 text-slate-500" />
@@ -1178,8 +1572,124 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
               <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs flex items-center justify-between font-bold">
                 <span className="text-slate-600">Matched Email Recipients:</span>
                 <span className="text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200">
-                  {emailTargetRecipients.length.toLocaleString()} business(es)
+                  {finalActiveRecipients.length.toLocaleString()} business(es)
                 </span>
+              </div>
+
+              {/* Interactive Extracted Recipient Directory & Details View */}
+              <div className="pt-2 space-y-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-slate-500">
+                    Extracted Email Recipients ({finalActiveRecipients.length.toLocaleString()})
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyEmails(finalActiveRecipients)}
+                      className="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 cursor-pointer bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 transition"
+                      title="Copy all recipient email addresses to clipboard"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy All</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportCsv(finalActiveRecipients, "SearchBiz_Email_Recipients.csv")}
+                      className="text-[10px] text-slate-600 hover:text-slate-900 font-bold flex items-center gap-1 cursor-pointer bg-slate-100 px-2 py-0.5 rounded border border-slate-200 transition"
+                      title="Download recipient list as CSV"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>CSV</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search input for recipients */}
+                <div className="relative">
+                  <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={recipientSearchQuery}
+                    onChange={(e) => setRecipientSearchQuery(e.target.value)}
+                    placeholder="Filter extracted recipients..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-7 pr-3 py-1.5 text-[11px] text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+
+                {/* Recipient list container */}
+                <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-100 border border-slate-200 rounded-2xl p-2 bg-slate-50/50">
+                  {displayedCandidateRecipients.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 text-center py-4 italic">No matching email recipients found.</p>
+                  ) : (
+                    displayedCandidateRecipients.slice(0, 100).map((r) => {
+                      const isExcluded = excludedRecipientEmails.has((r.email || "").toLowerCase().trim());
+                      const pCode = r.postalCode || getPostalCodeForTown(r.city || r.town || "");
+                      return (
+                        <div key={r.id || r.email} className={`pt-2 pb-1.5 flex items-start justify-between gap-2 text-[11px] ${isExcluded ? "opacity-50" : ""}`}>
+                          <div className="flex items-start gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              onChange={() => {
+                                const next = new Set(excludedRecipientEmails);
+                                const em = (r.email || "").toLowerCase().trim();
+                                if (isExcluded) next.delete(em);
+                                else next.add(em);
+                                setExcludedRecipientEmails(next);
+                              }}
+                              className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer shrink-0"
+                              title={isExcluded ? "Include this business in broadcast" : "Exclude this business from broadcast"}
+                            />
+                            <div className="min-w-0 space-y-0.5">
+                              <p className="font-bold text-slate-900 truncate">{r.title}</p>
+                              <div className="flex items-center gap-1.5 text-slate-600 font-mono text-[10px]">
+                                <span className="text-emerald-700 font-bold truncate max-w-[150px]">{r.email}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(r.email || "");
+                                    setCopiedToast(`Copied ${r.email} to clipboard!`);
+                                    setTimeout(() => setCopiedToast(null), 3000);
+                                  }}
+                                  className="text-slate-400 hover:text-emerald-700 cursor-pointer p-0.5"
+                                  title="Copy email"
+                                >
+                                  <Copy className="w-2.5 h-2.5" />
+                                </button>
+                                <a
+                                  href={`mailto:${r.email}`}
+                                  className="text-slate-400 hover:text-emerald-700 p-0.5"
+                                  title="Open in mail app"
+                                >
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              </div>
+                              <div className="text-[10px] text-slate-500 truncate flex flex-wrap items-center gap-1">
+                                <span>{r.suburb || r.city || r.town}</span>
+                                {pCode && <span className="font-mono bg-amber-50 text-amber-900 border border-amber-200/80 px-1 rounded text-[9px] font-bold">{pCode}</span>}
+                                {r.phone && <span className="font-mono text-slate-600">&bull; {r.phone}</span>}
+                                {r.address && <span className="text-slate-400 max-w-[120px] truncate">&bull; {r.address}</span>}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleTargetSingleBusiness(r)}
+                            className="shrink-0 px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold cursor-pointer"
+                            title="Set as single target"
+                          >
+                            Single
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                  {displayedCandidateRecipients.length > 100 && (
+                    <p className="text-[10px] text-center text-slate-400 pt-1">
+                      Showing first 100 of {displayedCandidateRecipients.length.toLocaleString()} matching businesses
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1280,7 +1790,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
 
               <button
                 type="button"
-                disabled={isSending || emailTargetRecipients.length === 0}
+                disabled={isSending || finalActiveRecipients.length === 0}
                 onClick={() => handleSendBroadcast(false)}
                 className="flex-1 sm:flex-none px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-2 transition shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
               >
@@ -1295,7 +1805,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                     <span>
                       {emailTargetType === "single"
                         ? "Send 1 Email to Business"
-                        : `Dispatch to ${emailTargetRecipients.length.toLocaleString()} Businesses`}
+                        : `Dispatch to ${finalActiveRecipients.length.toLocaleString()} Businesses`}
                     </span>
                   </>
                 )}
@@ -1535,6 +2045,14 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Copied Toast Alert */}
+      {copiedToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-bottom-2 duration-200 border border-slate-800">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{copiedToast}</span>
         </div>
       )}
     </div>

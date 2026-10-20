@@ -3037,31 +3037,20 @@ export default function AdminDashboard() {
                           const normPhone = (s: string) => (s || "").replace(/[^0-9]/g, '');
                           const normAddr = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
 
-                          const seenCommitKeys = new Set<string>();
-                          let commitDuplicates = 0;
-
-                          const validWithPhone = csvFileParsed.filter(item => {
-                            const primaryPhone = (item.phone || item.telephone || item.whatsapp || "").replace(/[\s\-\(\)\.]/g, '');
-                            const hasAddr = Boolean((item.address || item.suburb || item.city || "").trim());
-                            if (!item.title || !hasAddr || !primaryPhone || primaryPhone === "·" || primaryPhone === "" || primaryPhone.length < 7) {
-                              return false;
-                            }
-                            const nt = normTitle(item.title);
-                            const np = normPhone(primaryPhone);
-                            const na = normAddr(item.address || `${item.suburb || ''} ${item.city || ''}`);
-                            if (nt && np && na) {
-                              const key = `${nt}|${np}|${na}`;
-                              if (seenCommitKeys.has(key)) {
-                                commitDuplicates++;
-                                return false;
-                              }
-                              seenCommitKeys.add(key);
-                            }
-                            return true;
+                          const validWithPhone = csvFileParsed.map(item => {
+                            const finalTitle = (item.title || "").trim() || "Unnamed Business";
+                            const finalPhone = (item.phone || item.telephone || item.whatsapp || "").trim() || "Available on Request";
+                            const finalAddress = (item.address || "").trim() || [item.suburb, item.city, item.postalCode, item.province].filter(Boolean).join(", ") || "South Africa";
+                            return {
+                              ...item,
+                              title: finalTitle,
+                              phone: finalPhone,
+                              address: finalAddress
+                            };
                           });
 
                           if (validWithPhone.length === 0) {
-                            alert(`Cannot publish: No unique listings meeting minimum requirements (Business Name, Address, and at least 1 Phone/Telephone/WhatsApp number) found.`);
+                            alert(`Cannot publish: No listings found in the parsed CSV.`);
                             return;
                           }
 
@@ -3081,43 +3070,59 @@ export default function AdminDashboard() {
                               setCsvUploadProgressText(`Uploading batch ${currentBatch} of ${totalBatches} (${currentCount.toLocaleString()} / ${validWithPhone.length.toLocaleString()} ads)...`);
 
                               const batchSlice = validWithPhone.slice(c, c + chunkSize).map((item) => {
-                                let prov = (item.province && item.province !== "all") ? item.province.toLowerCase().trim() : "";
-                                if (!prov) {
-                                  if (csvDefaultProvince !== "all") {
-                                    prov = csvDefaultProvince.toLowerCase().trim();
-                                  } else {
-                                    const loc = detectLocationFromPhoneAndText(
-                                      item.phone || item.telephone || item.whatsapp || "",
-                                      `${item.title || ""} ${item.address || ""} ${item.suburb || ""} ${item.city || ""} ${item.postalCode || ""}`,
-                                      "gauteng"
-                                    );
-                                    prov = (loc.province || "gauteng").toLowerCase().trim();
-                                  }
-                                }
                                 const addr = item.address || "";
+                                const primaryPhone = item.phone || item.telephone || item.whatsapp || "";
+                                
                                 const exactLoc = resolveExactSouthAfricanLocation({
-                                  province: prov,
+                                  province: item.province,
                                   city: item.city || item.town,
                                   town: item.city || item.town,
                                   suburb: item.suburb,
                                   postalCode: item.postalCode,
                                   address: addr,
-                                  title: item.title
+                                  title: item.title,
+                                  phone: primaryPhone
                                 });
+
+                                let prov = exactLoc.provinceSlug;
+                                if (!prov) {
+                                  if (item.province && item.province !== "all") {
+                                    prov = item.province.toLowerCase().trim();
+                                  } else if (csvDefaultProvince !== "all") {
+                                    prov = csvDefaultProvince.toLowerCase().trim();
+                                  } else {
+                                    const loc = detectLocationFromPhoneAndText(
+                                      primaryPhone,
+                                      `${item.title || ""} ${addr} ${item.suburb || ""} ${item.city || ""} ${item.postalCode || ""}`,
+                                      "gauteng"
+                                    );
+                                    prov = (loc.province || "gauteng").toLowerCase().trim();
+                                  }
+                                }
 
                                 const rawServices = item.servicesOffered || "";
                                 const cat = chosenCat || item.category || "General Business Services";
                                 const catCode = chosenCode || item.categoryCode || "";
-                                const primaryPhone = item.phone || item.telephone || item.whatsapp || "";
-                                const finalSuburb = item.suburb || exactLoc.suburb || "";
-                                const finalCity = exactLoc.city || item.city || "Johannesburg";
-                                const finalPostalCode = item.postalCode || exactLoc.postalCode || "";
+                                const finalSuburb = exactLoc.suburb || item.suburb || "";
+                                const PROV_DEFAULT_CITIES: Record<string, string> = {
+                                  'gauteng': 'Johannesburg',
+                                  'kwazulu-natal': 'Durban',
+                                  'western-cape': 'Cape Town',
+                                  'eastern-cape': 'Gqeberha',
+                                  'free-state': 'Bloemfontein',
+                                  'limpopo': 'Polokwane',
+                                  'mpumalanga': 'Mbombela',
+                                  'north-west': 'Rustenburg',
+                                  'northern-cape': 'Kimberley'
+                                };
+                                const finalCity = (exactLoc.city && exactLoc.city.toLowerCase() !== 'johannesburg') ? exactLoc.city : (item.city || item.town || PROV_DEFAULT_CITIES[prov] || "Johannesburg");
+                                const finalPostalCode = exactLoc.postalCode || item.postalCode || "";
 
                                 return {
                                   title: item.title || "Unnamed Business",
                                   category: cat,
                                   categoryCode: catCode,
-                                  province: exactLoc.provinceSlug || prov,
+                                  province: prov || "gauteng",
                                   city: finalCity,
                                   town: finalCity,
                                   location: finalCity.toLowerCase(),
@@ -3140,7 +3145,9 @@ export default function AdminDashboard() {
                                   youtube: item.youtube || "",
                                   linkedin: item.linkedin || "",
                                   isApproved: true,
+                                  adminApproved: true,
                                   status: "active",
+                                  approvalStatus: "approved",
                                 };
                               });
 
@@ -3219,6 +3226,7 @@ export default function AdminDashboard() {
                         <th className="py-3 px-4 w-12 text-center">#</th>
                         <th className="py-3 px-4 min-w-[180px]">Company Name / Title</th>
                         <th className="py-3 px-4 min-w-[150px]">Street Address</th>
+                        <th className="py-3 px-4 min-w-[90px]">Postal Code</th>
                         <th className="py-3 px-4 min-w-[120px]">Phone Number</th>
                         <th className="py-3 px-4 min-w-[130px]">Category</th>
                         <th className="py-3 px-4 min-w-[120px]">Province</th>
@@ -3251,6 +3259,18 @@ export default function AdminDashboard() {
                                 setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, address: val } : row));
                               }}
                               className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              value={item.postalCode || ""}
+                              placeholder="e.g. 4001"
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCsvFileParsed(prev => prev.map((row, i) => i === idx ? { ...row, postalCode: val } : row));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-amber-900 font-mono font-bold focus:bg-white focus:ring-1 focus:ring-emerald-500"
                             />
                           </td>
                           <td className="py-2 px-2">
@@ -3836,47 +3856,45 @@ export default function AdminDashboard() {
                           const services = rec.servicesOffered;
                           const website = rec.website;
 
-                          const cleanPhone = primaryPhone.replace(/[\s\-\(\)\.]/g, '');
-                          const hasAddress = Boolean((address || rec.suburb || rec.city || "").trim());
-                          if (!title || !hasAddress || !cleanPhone || cleanPhone === "·" || cleanPhone === "" || cleanPhone.length < 7) {
-                            skippedNoPhone++;
-                            continue;
-                          }
+                          const finalTitle = title || "Unnamed Business";
+                          const finalPhone = primaryPhone || "Available on Request";
+                          const finalAddress = address || [rec.suburb, rec.city, rec.postalCode, rec.province].filter(Boolean).join(", ") || "South Africa";
 
-                          const nT = normTitle(title);
-                          const nP = normPhone(primaryPhone);
-                          const nA = normAddr(address || `${rec.suburb || ''} ${rec.city || ''}`);
-                          if (nT && nP && nA) {
-                            const tripletKey = `${nT}|${nP}|${nA}`;
-                            if (seenBatchKeys.has(tripletKey)) {
-                              skippedDuplicates++;
-                              continue;
-                            }
-                            seenBatchKeys.add(tripletKey);
-                          }
+                          const exactLoc = resolveExactSouthAfricanLocation({
+                            province: rec.province,
+                            city: rec.city || rec.town,
+                            town: rec.city || rec.town,
+                            suburb: rec.suburb,
+                            postalCode: rec.postalCode,
+                            address: finalAddress,
+                            title: finalTitle,
+                            phone: primaryPhone
+                          });
 
                           const category = chosenCat || rec.category || "General Business Services";
                           const categoryCode = chosenCode || rec.categoryCode || "";
-                          const location = (rec.province && rec.province !== "all") ? rec.province : (csvDefaultProvince !== "all" ? csvDefaultProvince : "gauteng");
-                          const parsedLoc = findSuburbAndTown(location, address ? `${address} ${title}` : title, rec.city);
+                          const finalProv = exactLoc.provinceSlug || (rec.province && rec.province !== "all" ? rec.province.toLowerCase().trim() : (csvDefaultProvince !== "all" ? csvDefaultProvince.toLowerCase().trim() : "gauteng"));
+                          const finalCity = exactLoc.city || rec.city || rec.town || "Johannesburg";
+                          const finalSuburb = exactLoc.suburb || rec.suburb || "";
+                          const finalPostalCode = exactLoc.postalCode || rec.postalCode || "";
 
                           newAds.push({
-                            title: title || "Unknown Business",
+                            title: finalTitle,
                             category: category,
                             categoryCode: categoryCode,
-                            province: location,
-                            city: rec.city || parsedLoc.town,
-                            town: rec.city || parsedLoc.town,
-                            location: rec.city || parsedLoc.town,
-                            suburb: rec.suburb || parsedLoc.suburb,
-                            postalCode: rec.postalCode || "",
-                            description: rec.description || (services ? `Services offered: ${services}` : `${category} business listed in ${rec.suburb || parsedLoc.suburb}, ${rec.city || parsedLoc.town}.`),
+                            province: finalProv,
+                            city: finalCity,
+                            town: finalCity,
+                            location: finalCity.toLowerCase(),
+                            suburb: finalSuburb,
+                            postalCode: finalPostalCode,
+                            description: rec.description || (services ? `Services offered: ${services}` : `${category} business listed in ${finalSuburb ? finalSuburb + ', ' : ''}${finalCity}.`),
                             tradingHours: rec.tradingHours || "",
                             servicesOffered: services || category,
-                            address: address || "",
-                            phone: primaryPhone,
-                            telephone: rec.telephone || primaryPhone,
-                            whatsapp: rec.whatsapp || primaryPhone,
+                            address: finalAddress,
+                            phone: finalPhone,
+                            telephone: rec.telephone || finalPhone,
+                            whatsapp: rec.whatsapp || finalPhone,
                             email: rec.email || "",
                             website: website || "",
                             socialLinks: rec.socialLinks || "",

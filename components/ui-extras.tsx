@@ -42,39 +42,22 @@ export const VerificationBadge = ({
   }
 
   return (
-    <div className="flex flex-col gap-1.5 items-start shrink-0 my-1">
-      {/* 1. Unclaimed Listing */}
+    <div className="flex flex-wrap gap-1.5 items-center shrink-0 my-1">
       <div 
-        className="inline-flex items-center text-slate-700 bg-slate-100/95 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-300 shadow-xs"
-        title="Unclaimed SearchBiz.co.za Listing"
+        className="inline-flex items-center text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-200"
+        title="Standard SearchBiz.co.za Listing"
       >
-        <AlertCircle className="w-3 h-3 mr-1 text-slate-500 shrink-0" />
-        <span>Unclaimed Listing</span>
+        <span>Standard Listing</span>
       </div>
-
-      {/* 2. Unverified Listing (in red pulsing) */}
-      <div 
-        className="inline-flex items-center text-red-600 bg-red-50/95 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border border-red-300 shadow-xs animate-pulse"
-        title="Unverified Listing"
-      >
-        <span className="relative flex h-2 w-2 mr-1.5 shrink-0">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
-        </span>
-        <span>Unverified Listing</span>
-      </div>
-
-      {/* 3. Free Listing (in red pulsing) */}
-      <div 
-        className="inline-flex items-center text-red-600 bg-red-50/95 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border border-red-300 shadow-xs animate-pulse"
-        title="Free Listing — Details Locked Until Level 2 Upgrade"
-      >
-        <span className="relative flex h-2 w-2 mr-1.5 shrink-0">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
-        </span>
-        <span>Free Listing (Level 1 Locked)</span>
-      </div>
+      {!isClaimed && (
+        <div 
+          className="inline-flex items-center text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md text-[10px] font-semibold tracking-wider border border-amber-200"
+          title="Unclaimed Listing — Available for owner to claim"
+        >
+          <AlertCircle className="w-3 h-3 mr-1 text-amber-600 shrink-0" />
+          <span>Unclaimed</span>
+        </div>
+      )}
     </div>
   );
 };

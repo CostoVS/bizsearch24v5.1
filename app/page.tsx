@@ -6,7 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { PROVINCES, CATEGORIES, getStoredAds, saveStoredAds, deleteAd, safeLocalStorage, fetchAndStoreAds, getTotalAdsCount, getVerifiedAdsCount } from "@/lib/data";
 import { isCustomerReviewOrGarbage } from "@/lib/clean-ad";
-import { Search, MapPin, BadgeCheck, Star, Briefcase, Zap, Sparkles, Edit, Trash2 } from "lucide-react";
+import { Search, MapPin, BadgeCheck, Star, Briefcase, Zap, Sparkles, Edit, Trash2, ChevronRight, Lock } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 import { SearchBar } from "@/components/search-bar";
@@ -447,47 +447,38 @@ export default function HomePage() {
                       </div>
                     )}
                   </div>
-                  <div className="text-slate-500 text-xs leading-relaxed mt-auto">
-                    {!(ad.isPremium && (ad.verified || (ad as any).isVerified || ad.isClaimed === true) && (ad as any).isLockedLevel1 !== true) ? (
-                      <div className="relative rounded-xl border border-amber-200/80 bg-amber-50/30 p-2.5 overflow-hidden">
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className="text-[9px] font-black uppercase tracking-wider text-amber-900">
-                            🔒 Locked Paid Details (Level 2 — R199/mo)
-                          </span>
-                        </div>
-                        <div className="blur-[2px] select-none pointer-events-none opacity-55 text-[10px] space-y-1">
-                          <p className="line-clamp-2 text-slate-600">
-                            {ad.description || `${ad.title} in ${ad.location}`}
-                          </p>
-                          <p className="font-medium text-slate-500 truncate">
-                            Services: {ad.servicesOffered || ad.category} | Hours: {(ad as any).tradingHours || '08:00 - 17:00'}
-                          </p>
-                          <p className="font-medium text-slate-500 truncate">
-                            Website • Email • Social Links Locked
-                          </p>
-                        </div>
+                  <div className="text-slate-600 text-xs leading-relaxed mt-auto">
+                    <AdDescription description={ad.description} />
+                    {ad.servicesOffered && !isCustomerReviewOrGarbage(ad.servicesOffered) && (
+                      <div className="mt-2 pt-1.5 border-t border-slate-100 text-slate-600 text-[11px] leading-relaxed">
+                        <span className="font-extrabold uppercase text-[9px] text-emerald-700 tracking-wider block mb-0.5">Services:</span>
+                        <p className="line-clamp-2 font-medium text-slate-500">{ad.servicesOffered}</p>
                       </div>
-                    ) : (
-                      <>
-                        <AdDescription description={ad.description} />
-                        {ad.servicesOffered && !isCustomerReviewOrGarbage(ad.servicesOffered) && (
-                          <div className="mt-2 pt-2 border-t border-slate-100 text-slate-600 text-[10px] leading-relaxed">
-                            <span className="font-extrabold uppercase text-[9px] text-emerald-600 tracking-wider block mb-0.5">Services Offered:</span>
-                            <p className="whitespace-pre-line font-medium text-slate-500">{ad.servicesOffered}</p>
-                          </div>
-                        )}
-                      </>
                     )}
 
-                    <div 
+                    {!(ad.isPremium && (ad.verified || (ad as any).isVerified || ad.isClaimed === true) && (ad as any).isLockedLevel1 !== true) && (
+                      <div className="mt-2 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[10px] text-slate-500 flex items-center justify-between">
+                        <span className="flex items-center gap-1 font-medium">
+                          <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>Direct Links Unlocked on Claim</span>
+                        </span>
+                        <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                          Claim Available
+                        </span>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedAd(ad);
                       }}
-                      className="mt-2.5 text-emerald-600 hover:text-emerald-700 text-xs font-bold hover:underline inline-flex items-center gap-1 cursor-pointer transition-colors"
+                      className="w-full mt-3 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition cursor-pointer"
                     >
-                      click here to view more
-                    </div>
+                      <span>View Business Profile</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                   {isAdmin && (
                     <div className="flex gap-2 mt-3 pt-2.5 border-t border-rose-100 relative z-20" onClick={(e) => e.stopPropagation()}>

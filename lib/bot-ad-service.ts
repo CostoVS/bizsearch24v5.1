@@ -94,6 +94,15 @@ export interface BotAdPayload {
   plan?: string;
   image?: string;
   price?: string | number;
+  id?: string;
+  userId?: string;
+  isActive?: boolean;
+  isApproved?: boolean;
+  adminApproved?: boolean;
+  status?: string;
+  approvalStatus?: string;
+  isRecommended?: boolean;
+  isVerified?: boolean;
 }
 
 /**
@@ -469,17 +478,26 @@ export function readServerDb(): any {
           if (ad.id) seenPaidIds.add(ad.id);
           dedupedAds.push(ad);
         } else {
+          const adId = String(ad.id || '').trim();
           const tNorm = String(ad.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
           const pNorm = String(ad.phone || ad.telephone || ad.landline || ad.whatsapp || '').replace(/[^0-9]/g, '').slice(-9);
-          const aNorm = String(ad.address || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 32);
+          const aNorm = String(ad.address || '').toLowerCase().replace(/[^a-z0-9]/g, '');
           const townNorm = String(ad.city || ad.town || ad.location || '').toLowerCase().replace(/[^a-z0-9]/g, '');
           const subNorm = String(ad.suburb || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-          const catNorm = String(ad.categoryCode || ad.category || '').toLowerCase().replace(/[^a-z0-9.]/g, '');
-          const k1 = `${tNorm}_${aNorm || (townNorm + '_' + subNorm)}_${pNorm}`;
-          const k2 = `tsc_${tNorm}_${subNorm || townNorm}_${catNorm}`;
-          if (seenFreeKeys.has(k1) || seenFreeKeys.has(k2)) continue;
-          seenFreeKeys.add(k1);
-          seenFreeKeys.add(k2);
+          
+          let dedupKey = '';
+          if (adId) {
+            dedupKey = `id_${adId}`;
+          } else if (pNorm && pNorm.length >= 7 && tNorm) {
+            dedupKey = `tp_${tNorm}_${townNorm}_${subNorm}_${pNorm}`;
+          } else if (tNorm && aNorm && aNorm.length >= 10) {
+            dedupKey = `ta_${tNorm}_${townNorm}_${aNorm.slice(0, 60)}`;
+          } else {
+            dedupKey = `raw_${tNorm}_${townNorm}_${subNorm}_${pNorm}_${aNorm.slice(0, 60)}`;
+          }
+
+          if (seenFreeKeys.has(dedupKey)) continue;
+          seenFreeKeys.add(dedupKey);
           dedupedAds.push(ad);
         }
       }
@@ -936,13 +954,15 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
       if (isPaid) continue; // Paid Level 2+ ads are allowed to have duplicates across areas
       const titleNorm = (a.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const phoneNorm = (a.phone || a.telephone || a.landline || a.whatsapp || '').replace(/[^0-9]/g, '').slice(-9);
-      const addrNorm = (a.address || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 32);
+      const addrNorm = (a.address || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const townNorm = (a.city || a.town || a.location || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const subNorm = (a.suburb || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const catNorm = (a.categoryCode || a.category || '').toLowerCase().replace(/[^a-z0-9.]/g, '');
-      if (titleNorm) {
-        adMap.set(`${titleNorm}_${addrNorm || (townNorm + '_' + subNorm)}_${phoneNorm}`, a);
-        adMap.set(`tsc_${titleNorm}_${subNorm || townNorm}_${catNorm}`, a);
+      if (a.id) adMap.set(`id_${a.id}`, a);
+      if (titleNorm && phoneNorm && phoneNorm.length >= 7) {
+        adMap.set(`tp_${titleNorm}_${townNorm}_${subNorm}_${phoneNorm}`, a);
+      }
+      if (titleNorm && addrNorm && addrNorm.length >= 10) {
+        adMap.set(`ta_${titleNorm}_${townNorm}_${addrNorm.slice(0, 60)}`, a);
       }
     }
     globalRef.existingAdMap = adMap;
@@ -973,12 +993,7 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
     const rawPhone = (item.phone || '').trim();
     const rawLandline = (item.landline || item.telephone || '').trim();
     const rawWhatsapp = (item.whatsapp || '').trim();
-    // Minimum requirement: Phone -> Telephone/Landline -> WhatsApp (at least 1 number must be available)
-    const resolvedPublicPhone = rawPhone || rawLandline || rawWhatsapp;
-
-    if (!resolvedPublicPhone) {
-      continue;
-    }
+    const resolvedPublicPhone = rawPhone || rawLandline || rawWhatsapp || '';
 
     // Pre-build candidate ad and resolve its true South African geography, postal code & category first
     const rawTown = item.city || item.town || item.location || 'Johannesburg';
@@ -990,9 +1005,15 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
       : (item.servicesOffered ? String(item.servicesOffered).trim() : '');
     const rawHours = (item.tradingHours || item.operatingHours || '').trim();
 
+    const isApprovedVal = item.isApproved !== undefined ? Boolean(item.isApproved) : true;
+    const adminApprovedVal = item.adminApproved !== undefined ? Boolean(item.adminApproved) : true;
+    const statusVal = item.status || (isApprovedVal ? 'active' : 'pending');
+    const approvalStatusVal = item.approvalStatus || (adminApprovedVal ? 'approved' : 'pending');
+
     const candidateAd: any = {
-      userId: 'agent-bot',
-      isActive: true,
+      id: item.id || '',
+      userId: item.userId || 'agent-bot',
+      isActive: item.isActive !== false,
       title: item.title.trim(),
       category: item.category ? item.category.trim() : 'General Services',
       subcategory: item.subcategory ? item.subcategory.trim() : (item.category ? item.category.trim() : 'General Services'),
@@ -1008,17 +1029,17 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
       tradingHours: rawHours,
       operatingHours: rawHours,
       servicesOffered: rawServices,
-      preferredContact: item.preferredContact || 'Phone',
-      showCallOption: true,
-      verified: false,
-      isVerified: false,
-      isRecommended: false,
+      preferredContact: item.preferredContact || (resolvedPublicPhone ? 'Phone' : (item.email ? 'Email' : 'Direct')),
+      showCallOption: Boolean(resolvedPublicPhone),
+      verified: item.verified === true,
+      isVerified: item.isVerified === true || item.verified === true,
+      isRecommended: item.isRecommended === true,
       isPremium: isPremium,
       isLockedLevel1: isFree,
-      isApproved: false,
-      adminApproved: false,
-      status: 'pending',
-      approvalStatus: 'pending',
+      isApproved: isApprovedVal,
+      adminApproved: adminApprovedVal,
+      status: statusVal,
+      approvalStatus: approvalStatusVal,
       isSponsor: isFree ? false : (item.isSponsor || false),
       isClaimed: isClaimed,
       plan: isPremium ? 'PREMIUM' : 'free',
@@ -1074,16 +1095,21 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
 
     const titleNorm = candidateAd.title.toLowerCase().replace(/[^a-z0-9]/g, '');
     const phoneNorm = (candidateAd.phone || '').replace(/[^0-9]/g, '').slice(-9);
-    const addrNorm = (candidateAd.address || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 32);
+    const addrNorm = (candidateAd.address || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const townNorm = (candidateAd.city || candidateAd.town || candidateAd.location || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const subNorm = (candidateAd.suburb || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const catNorm = (candidateAd.categoryCode || candidateAd.category || '').toLowerCase().replace(/[^a-z0-9.]/g, '');
-
-    const compositeKey = `${titleNorm}_${addrNorm || (townNorm + '_' + subNorm)}_${phoneNorm}`;
-    const tscKey = `tsc_${titleNorm}_${subNorm || townNorm}_${catNorm}`;
 
     const isPaidCandidate = Boolean(candidateAd.isPremium === true || candidateAd.isSponsor === true);
-    const existingAd = isPaidCandidate ? null : (existingAdMap.get(compositeKey) || existingAdMap.get(tscKey));
+    let existingAd: any = null;
+    if (!isPaidCandidate) {
+      if (candidateAd.id && existingAdMap.has(`id_${candidateAd.id}`)) {
+        existingAd = existingAdMap.get(`id_${candidateAd.id}`);
+      } else if (titleNorm && phoneNorm && phoneNorm.length >= 7) {
+        existingAd = existingAdMap.get(`tp_${titleNorm}_${townNorm}_${subNorm}_${phoneNorm}`);
+      } else if (titleNorm && addrNorm && addrNorm.length >= 10) {
+        existingAd = existingAdMap.get(`ta_${titleNorm}_${townNorm}_${addrNorm.slice(0, 60)}`);
+      }
+    }
     if (existingAd) {
       // Enrich existing ad in-place so its province, town, city, suburb, postalCode, category, and contacts are 100% accurate
       existingAd.province = candidateAd.province;
@@ -1150,24 +1176,31 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
         if (candidateAd.description) existingAd.description = candidateAd.description;
       }
       existingAd.isActive = true;
-      if (existingAd.adminApproved !== true && existingAd.verified !== true) {
-        existingAd.isApproved = false;
-        existingAd.adminApproved = false;
-        existingAd.status = 'pending';
-        existingAd.approvalStatus = 'pending';
+      if (item.adminApproved !== false) {
+        existingAd.isApproved = true;
+        existingAd.adminApproved = true;
+        existingAd.status = 'active';
+        existingAd.approvalStatus = 'approved';
       }
       updatedCount++;
       skippedDuplicatesCount++;
       continue;
     }
 
-    const randomSuffix = Math.random().toString(36).substring(2, 8);
-    candidateAd.id = `ad-agent-${Date.now()}-${randomSuffix}-${addedCount}`;
+    if (!candidateAd.id) {
+      const randomSuffix = Math.random().toString(36).substring(2, 8);
+      candidateAd.id = `ad-agent-${Date.now()}-${randomSuffix}-${addedCount}`;
+    }
     internAdFieldsInPlace(candidateAd);
 
     if (!isPaidCandidate) {
-      existingAdMap.set(compositeKey, candidateAd);
-      existingAdMap.set(tscKey, candidateAd);
+      if (candidateAd.id) existingAdMap.set(`id_${candidateAd.id}`, candidateAd);
+      if (titleNorm && phoneNorm && phoneNorm.length >= 7) {
+        existingAdMap.set(`tp_${titleNorm}_${townNorm}_${subNorm}_${phoneNorm}`, candidateAd);
+      }
+      if (titleNorm && addrNorm && addrNorm.length >= 10) {
+        existingAdMap.set(`ta_${titleNorm}_${townNorm}_${addrNorm.slice(0, 60)}`, candidateAd);
+      }
     }
 
     newAdsToAppend.push(candidateAd);

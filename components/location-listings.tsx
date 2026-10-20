@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Star, Edit, Trash2 } from 'lucide-react';
+import { MapPin, Star, Edit, Trash2, ChevronRight, Lock } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { motion } from 'motion/react';
 import Link from 'next/link';
@@ -276,47 +276,38 @@ export default function LocationListings({ ads: propAds, properName, initialTota
                     </div>
                   )}
                 </div>
-                <div className="text-slate-500 text-sm flex-grow mb-4 leading-relaxed relative">
-                  {!(item.isPremium && (item.verified || item.isVerified || item.isClaimed === true) && item.isLockedLevel1 !== true) ? (
-                    <div className="relative rounded-xl border border-amber-200/80 bg-amber-50/30 p-3 overflow-hidden">
-                      <div className="flex items-center justify-between gap-1 mb-1.5">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 flex items-center gap-1">
-                          🔒 Locked Details (Level 2 — R199/mo)
-                        </span>
-                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
-                          Admin Unlock
-                        </span>
-                      </div>
-                      <div className="blur-[2px] select-none pointer-events-none opacity-55 text-xs space-y-1">
-                        <p className="line-clamp-2 text-slate-600">
-                          {item.description || `${item.title} in ${item.location}`}
-                        </p>
-                        <p className="font-medium text-slate-500 truncate">
-                          Services: {item.servicesOffered || item.category} | Hours, Website, Socials &amp; Email Locked
-                        </p>
-                      </div>
+                <div className="text-slate-600 text-xs flex-grow mb-4 leading-relaxed relative">
+                  <AdDescription description={item.description} />
+                  {item.servicesOffered && !isCustomerReviewOrGarbage(item.servicesOffered) && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 text-slate-600 text-xs leading-relaxed">
+                      <span className="font-extrabold uppercase text-[10px] text-emerald-700 tracking-wider block mb-0.5">Services:</span>
+                      <p className="line-clamp-2 font-medium text-slate-500">{item.servicesOffered}</p>
                     </div>
-                  ) : (
-                    <>
-                      <AdDescription description={item.description} />
-                      {item.servicesOffered && !isCustomerReviewOrGarbage(item.servicesOffered) && (
-                        <div className="mt-2.5 pt-2.5 border-t border-slate-100 text-slate-600 text-xs leading-relaxed">
-                          <span className="font-extrabold uppercase text-[10px] text-emerald-600 tracking-wider block mb-1">Services Offered:</span>
-                          <p className="whitespace-pre-line font-medium text-slate-500">{item.servicesOffered}</p>
-                        </div>
-                      )}
-                    </>
                   )}
 
-                  <div 
+                  {!(item.isPremium && (item.verified || item.isVerified || item.isClaimed === true) && item.isLockedLevel1 !== true) && (
+                    <div className="mt-2.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200/70 text-[10px] text-slate-500 flex items-center justify-between">
+                      <span className="flex items-center gap-1 font-medium">
+                        <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span>Direct Links Unlocked on Claim</span>
+                      </span>
+                      <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        Claim Available
+                      </span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedAd(item);
                     }}
-                    className="mt-3 text-emerald-600 hover:text-emerald-700 text-sm font-bold hover:underline inline-flex items-center gap-1 cursor-pointer transition-colors"
+                    className="w-full mt-3.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition cursor-pointer"
                   >
-                    click here to view more
-                  </div>
+                    <span>View Business Profile</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
                 {isAdmin && (
                   <div className="flex gap-2 mb-3 pt-2 border-t border-rose-100 relative z-20" onClick={(e) => e.stopPropagation()}>

@@ -881,6 +881,7 @@ export async function createBotAd(payload: BotAdPayload): Promise<{ success: boo
       payload.telegram
     ].filter(Boolean).join(' | '),
     price: payload.price !== undefined ? payload.price : undefined,
+    isLockedUpdate: Boolean((payload as any).isLockedUpdate),
     createdAt: nowIso,
     updatedAt: nowIso
   };
@@ -1103,6 +1104,7 @@ export async function createBotAdBatch(items: BotAdPayload[], isLastBatch: boole
         item.telegram
       ].filter(Boolean).join(' | '),
       price: item.price !== undefined ? item.price : undefined,
+      isLockedUpdate: Boolean((item as any).isLockedUpdate),
       createdAt: nowIso,
       updatedAt: nowIso
     };

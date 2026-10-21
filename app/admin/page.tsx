@@ -3056,7 +3056,7 @@ export default function AdminDashboard() {
 
                           setCsvUploadLoading(true);
                           try {
-                            const chunkSize = 2500;
+                            const chunkSize = 500;
                             let totalAdded = 0;
                             let totalUpdated = 0;
                             const chosenCat = (csvDefaultCategory && csvDefaultCategory !== "Other" && csvDefaultCategory !== "auto") ? csvDefaultCategory : "";
@@ -3067,6 +3067,7 @@ export default function AdminDashboard() {
                             for (let c = 0; c < validWithPhone.length; c += chunkSize) {
                               const currentBatch = Math.floor(c / chunkSize) + 1;
                               const currentCount = Math.min(c + chunkSize, validWithPhone.length);
+                              const isLast = (c + chunkSize >= validWithPhone.length);
                               setCsvUploadProgressText(`Uploading batch ${currentBatch} of ${totalBatches} (${currentCount.toLocaleString()} / ${validWithPhone.length.toLocaleString()} ads)...`);
 
                               const batchSlice = validWithPhone.slice(c, c + chunkSize).map((item) => {
@@ -3144,6 +3145,8 @@ export default function AdminDashboard() {
                                   instagram: item.instagram || "",
                                   youtube: item.youtube || "",
                                   linkedin: item.linkedin || "",
+                                  verified: false,
+                                  isVerified: false,
                                   isApproved: true,
                                   adminApproved: true,
                                   status: "active",
@@ -3151,20 +3154,41 @@ export default function AdminDashboard() {
                                 };
                               });
 
-                              const res = await fetch("/api/bot/ad/bulk", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ items: batchSlice })
-                              });
-                              if (res.ok) {
-                                const rData = await res.json();
-                                totalAdded += Number(rData.addedCount || 0);
-                                totalUpdated += Number(rData.updatedCount || 0);
+                              let batchSuccess = false;
+                              let batchErr = "";
+                              for (let retry = 0; retry < 3; retry++) {
+                                try {
+                                  const res = await fetch("/api/bot/ad/bulk", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ items: batchSlice, isLastBatch: isLast })
+                                  });
+                                  if (res.ok) {
+                                    const rData = await res.json();
+                                    totalAdded += Number(rData.addedCount || 0);
+                                    totalUpdated += Number(rData.updatedCount || 0);
+                                    batchSuccess = true;
+                                    break;
+                                  } else {
+                                    const errJson = await res.json().catch(() => ({}));
+                                    batchErr = errJson.details || errJson.error || `HTTP ${res.status}`;
+                                    await new Promise(resolve => setTimeout(resolve, 300 * (retry + 1)));
+                                  }
+                                } catch (err: any) {
+                                  batchErr = err?.message || "Network error";
+                                  await new Promise(resolve => setTimeout(resolve, 300 * (retry + 1)));
+                                }
                               }
+
+                              if (!batchSuccess) {
+                                console.error(`Batch ${currentBatch} failed:`, batchErr);
+                              }
+
                               // Non-blocking yield to keep browser completely responsive
-                              await new Promise(resolve => setTimeout(resolve, 20));
+                              await new Promise(resolve => setTimeout(resolve, 15));
                             }
 
+                            await new Promise(resolve => setTimeout(resolve, 100));
                             await refreshAdminServerAds();
                             await fetchDirectoryStats(true);
                             if (typeof window !== "undefined") {
@@ -3207,16 +3231,27 @@ export default function AdminDashboard() {
                 <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-700">
                   <span>Interactive Listing Spreadsheet Preview (Showing {Math.min(csvPreviewLimit, csvFileParsed.length).toLocaleString()} of {csvFileParsed.length.toLocaleString()} rows)</span>
                   <div className="flex items-center gap-2">
-                    {csvFileParsed.length > csvPreviewLimit && (
+                    <span className="text-[10px] text-slate-500 font-semibold">Preview:</span>
+                    {[50, 200, 500, 1000].map(cnt => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => setCsvPreviewLimit(cnt)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${csvPreviewLimit === cnt ? 'bg-emerald-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
+                      >
+                        {cnt}
+                      </button>
+                    ))}
+                    {csvFileParsed.length > 50 && (
                       <button
                         type="button"
-                        onClick={() => setCsvPreviewLimit(prev => prev + 100)}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition cursor-pointer"
+                        onClick={() => setCsvPreviewLimit(csvFileParsed.length)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${csvPreviewLimit >= csvFileParsed.length ? 'bg-emerald-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
                       >
-                        Show Next 100 Rows
+                        All ({csvFileParsed.length.toLocaleString()})
                       </button>
                     )}
-                    <span className="text-[10px] text-slate-500 font-mono">Total Rows: {csvFileParsed.length.toLocaleString()}</span>
+                    <span className="text-[10px] text-slate-500 font-mono ml-1">Total: {csvFileParsed.length.toLocaleString()}</span>
                   </div>
                 </div>
                 <div className="overflow-x-auto w-full max-w-full block max-h-[450px]">
@@ -3913,22 +3948,43 @@ export default function AdminDashboard() {
                       }
 
                       if (newAds.length > 0) {
-                        const chunkSize = 2500;
+                        const chunkSize = 500;
                         let totalAdded = 0;
                         let totalUpdated = 0;
                         for (let c = 0; c < newAds.length; c += chunkSize) {
                           const chunk = newAds.slice(c, c + chunkSize);
-                          const res = await fetch("/api/bot/ad/bulk", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ items: chunk })
-                          });
-                          if (res.ok) {
-                            const rData = await res.json();
-                            totalAdded += Number(rData.addedCount || 0);
-                            totalUpdated += Number(rData.updatedCount || 0);
+                          const isLast = (c + chunkSize >= newAds.length);
+                          let batchSuccess = false;
+                          let batchErr = "";
+                          for (let retry = 0; retry < 3; retry++) {
+                            try {
+                              const res = await fetch("/api/bot/ad/bulk", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ items: chunk, isLastBatch: isLast })
+                              });
+                              if (res.ok) {
+                                const rData = await res.json();
+                                totalAdded += Number(rData.addedCount || 0);
+                                totalUpdated += Number(rData.updatedCount || 0);
+                                batchSuccess = true;
+                                break;
+                              } else {
+                                const errJson = await res.json().catch(() => ({}));
+                                batchErr = errJson.details || errJson.error || `HTTP ${res.status}`;
+                                await new Promise(resolve => setTimeout(resolve, 300 * (retry + 1)));
+                              }
+                            } catch (err: any) {
+                              batchErr = err?.message || "Network error";
+                              await new Promise(resolve => setTimeout(resolve, 300 * (retry + 1)));
+                            }
                           }
+                          if (!batchSuccess) {
+                            console.error(`Batch for chunk starting at ${c} failed:`, batchErr);
+                          }
+                          await new Promise(resolve => setTimeout(resolve, 15));
                         }
+                        await new Promise(resolve => setTimeout(resolve, 100));
                         await refreshAdminServerAds();
                         const provBreakdown: Record<string, number> = {};
                         for (const a of newAds) {

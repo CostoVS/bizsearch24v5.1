@@ -409,28 +409,43 @@ function getLocalDataNoCache() {
     } catch (e) {}
   }
 
-  // Sort by largest file size (with 5% tolerance favoring newer mtime) so we only read & parse ONE file
-  rankedCandidates.sort((a, b) => {
-    if (Math.abs(a.size - b.size) > Math.max(a.size, b.size) * 0.05) {
-      return b.size - a.size;
-    }
-    return b.mtimeMs - a.mtimeMs;
-  });
-
   let bestData: any = null;
-  for (const candidate of rankedCandidates) {
+
+  // 1. Primary canonical database file always takes precedence if valid
+  if (fs.existsSync(PERSIST_PATH)) {
     try {
-      const data = readLargeStorageJsonSync(candidate.path);
+      const data = readLargeStorageJsonSync(PERSIST_PATH);
       if (data && typeof data === 'object' && Array.isArray(data.ads)) {
-        // Never allow an old backup file to resurrect ads that were intentionally purged more recently
-        if (latestPurgedData && latestPurgeTime > (data.updatedAt || 0) && latestPurgeTime > (data.lastPurgeAt || 0)) {
-          continue;
+        if (!latestPurgedData || (data.updatedAt || 0) >= latestPurgeTime) {
+          bestData = data;
         }
-        bestData = data;
-        break;
       }
-    } catch (e) {
-      console.error(`Failed to read json data from ${candidate.path}:`, e);
+    } catch (e) {}
+  }
+
+  if (!bestData) {
+    // Sort remaining candidates by largest file size
+    rankedCandidates.sort((a, b) => {
+      if (Math.abs(a.size - b.size) > Math.max(a.size, b.size) * 0.05) {
+        return b.size - a.size;
+      }
+      return b.mtimeMs - a.mtimeMs;
+    });
+
+    for (const candidate of rankedCandidates) {
+      try {
+        const data = readLargeStorageJsonSync(candidate.path);
+        if (data && typeof data === 'object' && Array.isArray(data.ads)) {
+          // Never allow an old backup file to resurrect ads that were intentionally purged more recently
+          if (latestPurgedData && latestPurgeTime > (data.updatedAt || 0) && latestPurgeTime > (data.lastPurgeAt || 0)) {
+            continue;
+          }
+          bestData = data;
+          break;
+        }
+      } catch (e) {
+        console.error(`Failed to read json data from ${candidate.path}:`, e);
+      }
     }
   }
 
@@ -735,7 +750,8 @@ async function checkAndReloadFromDiskAsync(force: boolean = false): Promise<void
     const diskPurgeTime = diskData?.lastPurgeAt || 0;
 
     const diskWasPurged = (diskPurgeTime > memPurgeTime) || (diskCount === 0 && diskPurgeTime > 0);
-    if (force || diskCount > 0 || diskWasPurged || diskCount >= memCount) {
+    // CRITICAL: NEVER overwrite in-memory cache if memory currently holds MORE ads than disk (unless an intentional purge occurred)!
+    if (diskWasPurged || diskCount >= memCount || (memCount === 0 && diskCount > 0)) {
       diskData.updatedAt = diskData.updatedAt || Date.now();
       const prebuiltIndex = buildIndexedDatasetSync(diskData);
       // Atomic pointer swap: zero downtime, continuous serving

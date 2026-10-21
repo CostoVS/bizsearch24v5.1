@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No items provided in batch payload.' }, { status: 400 });
     }
 
-    const result = await createBotAdBatch(items);
+    const isLastBatch = Boolean(body?.isLastBatch || body?.finalBatch);
+    const result = await createBotAdBatch(items, isLastBatch);
 
     return NextResponse.json({
       success: true,

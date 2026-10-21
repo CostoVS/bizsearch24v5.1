@@ -409,32 +409,47 @@ export function readServerDb(): any {
     } catch (e) {}
   }
 
-  // Sort by largest file size (with 5% tolerance favoring newer mtime) so we only parse ONE file
-  rankedCandidates.sort((a, b) => {
-    if (Math.abs(a.size - b.size) > Math.max(a.size, b.size) * 0.05) {
-      return b.size - a.size;
-    }
-    return b.mtimeMs - a.mtimeMs;
-  });
-
   let bestData: any = null;
-  for (const candidate of rankedCandidates) {
+
+  // 1. Primary canonical database file always takes precedence if valid
+  if (fs.existsSync(PERSIST_PATH)) {
     try {
-      const data = readLargeStorageJsonSync(candidate.path);
+      const data = readLargeStorageJsonSync(PERSIST_PATH);
       if (data && typeof data === 'object' && Array.isArray(data.ads)) {
-        if (data.ads.length > 0) {
-          bestData = data;
-          break; // File with actual active ads found - always prioritize!
-        }
-        if (latestPurgedData && latestPurgeTime > (data.updatedAt || 0) && latestPurgeTime > (data.lastPurgeAt || 0)) {
-          continue;
-        }
-        if (!bestData) {
+        if (!latestPurgedData || (data.updatedAt || 0) >= latestPurgeTime) {
           bestData = data;
         }
       }
-    } catch (e) {
-      console.error(`[BotAdService] Failed to read ${candidate.path}:`, e);
+    } catch (e) {}
+  }
+
+  if (!bestData) {
+    // Sort by largest file size (with 5% tolerance favoring newer mtime)
+    rankedCandidates.sort((a, b) => {
+      if (Math.abs(a.size - b.size) > Math.max(a.size, b.size) * 0.05) {
+        return b.size - a.size;
+      }
+      return b.mtimeMs - a.mtimeMs;
+    });
+
+    for (const candidate of rankedCandidates) {
+      try {
+        const data = readLargeStorageJsonSync(candidate.path);
+        if (data && typeof data === 'object' && Array.isArray(data.ads)) {
+          if (data.ads.length > 0) {
+            bestData = data;
+            break; // File with actual active ads found - always prioritize!
+          }
+          if (latestPurgedData && latestPurgeTime > (data.updatedAt || 0) && latestPurgeTime > (data.lastPurgeAt || 0)) {
+            continue;
+          }
+          if (!bestData) {
+            bestData = data;
+          }
+        }
+      } catch (e) {
+        console.error(`[BotAdService] Failed to read ${candidate.path}:`, e);
+      }
     }
   }
 
@@ -631,7 +646,7 @@ async function flushToDiskAsync(data: any, forceAllBackups: boolean = false): Pr
       globalRef.needsAnotherFlush = false;
       setTimeout(() => {
         if (globalRef.storageCache) flushToDiskAsync(globalRef.storageCache);
-      }, 10000);
+      }, 50);
     }
   }
 }
@@ -655,18 +670,21 @@ export function writeServerDb(data: any, immediate: boolean = false, keepIndexVa
   globalRef.pendingDiskFlush = true;
   globalRef.lastSelfWriteTime = Date.now();
 
-  const adCount = Array.isArray(data.ads) ? data.ads.length : 0;
-  const debounceMs = immediate && adCount < 1000 ? 300 : adCount > 100000 ? 6000 : 2500;
-
   if (globalRef.flushTimer) {
     clearTimeout(globalRef.flushTimer);
-  }
-  globalRef.flushTimer = setTimeout(() => {
     globalRef.flushTimer = null;
-    if (globalRef.storageCache) {
-      flushToDiskAsync(globalRef.storageCache);
-    }
-  }, debounceMs);
+  }
+
+  if (immediate) {
+    flushToDiskAsync(data, true);
+  } else {
+    globalRef.flushTimer = setTimeout(() => {
+      globalRef.flushTimer = null;
+      if (globalRef.storageCache) {
+        flushToDiskAsync(globalRef.storageCache);
+      }
+    }, 400);
+  }
 }
 
 export function purgeAllServerAds(): void {
@@ -921,7 +939,7 @@ export async function createBotAd(payload: BotAdPayload): Promise<{ success: boo
 /**
  * Bulk Create Ads with O(1) Persistent Composite Deduplication & Geography Auto-Resolution
  */
-export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
+export async function createBotAdBatch(items: BotAdPayload[], isLastBatch: boolean = false): Promise<{
   success: boolean;
   addedCount: number;
   updatedCount: number;
@@ -1232,7 +1250,7 @@ export async function createBotAdBatch(items: BotAdPayload[]): Promise<{
     } else if (globalRef.indexedDataset && globalRef.indexedDataset.queryCache instanceof Map) {
       globalRef.indexedDataset.queryCache.clear();
     }
-    writeServerDb(dbData, false, Boolean(globalRef.indexedDataset));
+    writeServerDb(dbData, isLastBatch, Boolean(globalRef.indexedDataset));
   }
 
   return {

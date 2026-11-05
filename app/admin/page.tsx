@@ -7,7 +7,8 @@ import dynamic from "next/dynamic";
 
 const MapPicker = dynamic(() => import("@/components/map-picker"), { ssr: false });
 import { MOCK_USERS, MOCK_ADS, getStoredAds, saveStoredAds, deleteAd, purgeStoredAdsBulk, fetchAndStoreAds, clearLocalAdsCache, getStoredBanners, saveStoredBanners, Banner, getTrashAds, restoreAdFromTrash, permanentlyDeleteAdFromTrash, emptyTrashPermanently, fetchDirectoryStats } from "@/lib/data";
-import { ShieldAlert, Users, Database, Globe, MonitorSmartphone, Settings, Edit, Trash2, LayoutTemplate, Activity, Eye, MousePointerClick, BarChart3, Trash, Search, Sparkles, Filter, ChevronRight, CornerDownRight, X, Plus, Copy, Layers, RefreshCw, Lock, KeyRound, CheckSquare, Square, AlertTriangle, ShieldCheck, Check, CheckCircle2, MapPin, MessageSquare, Phone, BellRing, Undo2, RotateCcw, ArchiveRestore, History, Mail, Send, Briefcase, Building2, AtSign } from "lucide-react";
+import { DEFAULT_SITE_STATUS_SETTINGS, SiteStatusSettings, getStoredSiteSettings, normalizeSiteStatusSettings, saveStoredSiteSettings } from "@/lib/site-settings";
+import { ShieldAlert, Users, Database, Globe, MonitorSmartphone, Settings, Edit, Trash2, LayoutTemplate, Activity, Eye, MousePointerClick, BarChart3, Trash, Search, Sparkles, Filter, ChevronRight, CornerDownRight, X, Plus, Copy, Layers, RefreshCw, Lock, KeyRound, CheckSquare, Square, AlertTriangle, ShieldCheck, Check, CheckCircle2, MapPin, MessageSquare, Phone, BellRing, Undo2, RotateCcw, ArchiveRestore, History, Mail, Send, Briefcase, Building2, AtSign, Construction, Wrench } from "lucide-react";
 import { getAnalyticsEvents, clearAnalyticsStorage, AnalyticsEvent } from "@/lib/analytics-utils";
 import AdDetailModal from "@/components/ad-detail-modal";
 import AdminDuplicateManager from "@/components/admin-duplicate-manager";
@@ -31,13 +32,76 @@ export default function AdminDashboard() {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [editingBanner, setEditingBanner] = useState<Banner | null>(null);
 
+  // Live Site Top Banner (Under Construction & Under Maintenance) toggles
+  const [siteStatus, setSiteStatus] = useState<SiteStatusSettings>(DEFAULT_SITE_STATUS_SETTINGS);
+  const [isSavingSiteStatus, setIsSavingSiteStatus] = useState(false);
+  const [siteStatusFeedback, setSiteStatusFeedback] = useState<string | null>(null);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       Promise.resolve().then(() => {
         setBanners(getStoredBanners());
+        const cachedStatus = getStoredSiteSettings();
+        if (cachedStatus.updatedAt > 0) {
+          setSiteStatus(cachedStatus);
+        }
       });
+
+      fetch("/api/site-settings", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) {
+            const normalized = normalizeSiteStatusSettings(data);
+            setSiteStatus(normalized);
+            saveStoredSiteSettings(normalized);
+          }
+        })
+        .catch(() => {});
     }
   }, []);
+
+  const handleToggleSiteStatus = async (field: "underConstruction" | "underMaintenance") => {
+    const previous = siteStatus;
+    const next: SiteStatusSettings = {
+      ...siteStatus,
+      [field]: !siteStatus[field],
+      updatedAt: Date.now(),
+    };
+
+    setSiteStatus(next);
+    saveStoredSiteSettings(next);
+    setIsSavingSiteStatus(true);
+    setSiteStatusFeedback(null);
+
+    try {
+      const res = await fetch("/api/site-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          underConstruction: next.underConstruction,
+          underMaintenance: next.underMaintenance,
+          adminEmail: user?.email || "admin",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to update live site banner settings");
+      }
+
+      const saved = normalizeSiteStatusSettings(await res.json());
+      setSiteStatus(saved);
+      saveStoredSiteSettings(saved);
+      setSiteStatusFeedback("Live site banner updated");
+      setTimeout(() => setSiteStatusFeedback(null), 3000);
+    } catch (err: any) {
+      setSiteStatus(previous);
+      saveStoredSiteSettings(previous);
+      setSiteStatusFeedback(err?.message || "Failed to save setting");
+    } finally {
+      setIsSavingSiteStatus(false);
+    }
+  };
 
   const saveBannersState = (newBanners: Banner[]) => {
     setBanners(newBanners);
@@ -137,7 +201,6 @@ export default function AdminDashboard() {
   const [csvDefaultProvince, setCsvDefaultProvince] = useState("all");
   const [csvDefaultCategory, setCsvDefaultCategory] = useState("Other");
   const [csvAiEnable, setCsvAiEnable] = useState(true);
-  const [csvLockEnabled, setCsvLockEnabled] = useState(true);
 
   // New CSV Upload Center Tab state variables
   const [csvFileParsed, setCsvFileParsed] = useState<any[]>([]); 
@@ -1477,7 +1540,17 @@ export default function AdminDashboard() {
   const todayStr = new Date().toISOString().split('T')[0];
   const usersTodayCount = mappedUsers.filter(u => u.joined === todayStr).length;
 
-  if (isLoading || !user || !isAdmin) return <div className="p-20 text-center text-slate-500 text-sm">Authenticating Secure Session...</div>;
+  if (isLoading) {
+    return (
+      <div className="p-20 text-center text-slate-500 text-sm">
+        Authenticating Secure Session...
+      </div>
+    );
+  }
+
+  if (!user || !isAdmin) {
+    return null;
+  }
 
   return (
     <div className="max-w-7xl mx-auto py-12 px-2 sm:px-6 w-full min-w-0 overflow-x-hidden">
@@ -1785,6 +1858,137 @@ export default function AdminDashboard() {
 
       {activeTab === 'banners' && (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+           {/* Live Site Top Status Banner Controls (Under Construction & Under Maintenance) */}
+           <div className="bg-white rounded-3xl p-6 sm:p-8 border-2 border-neutral-950 shadow-sm">
+             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200">
+               <div className="flex items-center gap-3">
+                 <div className="p-3 bg-yellow-400 text-neutral-950 rounded-2xl border-2 border-neutral-950 shadow-xs shrink-0">
+                   <Construction className="w-6 h-6" />
+                 </div>
+                 <div>
+                   <h2 className="text-lg sm:text-xl font-bold text-slate-900 font-display">
+                     Top Site Status Banners (Yellow &amp; Black)
+                   </h2>
+                   <p className="text-xs sm:text-sm text-slate-500">
+                     Toggle Under Construction and Under Maintenance notices displayed below the navbar across the live site.
+                   </p>
+                 </div>
+               </div>
+               <div className="flex items-center gap-2 shrink-0">
+                 {siteStatusFeedback && (
+                   <span className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                     {siteStatusFeedback}
+                   </span>
+                 )}
+                 <span
+                   className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border ${
+                     siteStatus.underConstruction || siteStatus.underMaintenance
+                       ? "bg-yellow-400 text-neutral-950 border-neutral-950"
+                       : "bg-slate-100 text-slate-600 border-slate-200"
+                   }`}
+                 >
+                   {siteStatus.underConstruction || siteStatus.underMaintenance
+                     ? "Live on Site"
+                     : "All Banners Off"}
+                 </span>
+               </div>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+               <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                 <div className="flex items-start gap-3 min-w-0">
+                   <div className="p-2.5 bg-yellow-400 text-neutral-950 rounded-xl border border-neutral-950 shrink-0 mt-0.5">
+                     <Construction className="w-5 h-5" />
+                   </div>
+                   <div className="min-w-0">
+                     <div className="flex items-center gap-2">
+                       <h3 className="text-sm font-bold text-slate-900">Under Construction Banner</h3>
+                       <span
+                         className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                           siteStatus.underConstruction
+                             ? "bg-neutral-950 text-yellow-300"
+                             : "bg-slate-200 text-slate-600"
+                         }`}
+                       >
+                         {siteStatus.underConstruction ? "ON" : "OFF"}
+                       </span>
+                     </div>
+                     <p className="text-xs text-slate-500 mt-1">
+                       Shows yellow &amp; black Under Construction banner below the navbar.
+                     </p>
+                   </div>
+                 </div>
+                 <button
+                   type="button"
+                   role="switch"
+                   aria-checked={siteStatus.underConstruction}
+                   aria-label="Toggle Under Construction Banner"
+                   disabled={isSavingSiteStatus}
+                   onClick={() => handleToggleSiteStatus("underConstruction")}
+                   className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 ${
+                     siteStatus.underConstruction
+                       ? "bg-yellow-400 border-neutral-950"
+                       : "bg-slate-200 border-slate-300"
+                   }`}
+                 >
+                   <span
+                     className={`inline-block h-6 w-6 transform rounded-full shadow-sm transition-transform duration-200 ${
+                       siteStatus.underConstruction
+                         ? "translate-x-6 bg-neutral-950"
+                         : "translate-x-0.5 bg-white"
+                     }`}
+                   />
+                 </button>
+               </div>
+
+               <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                 <div className="flex items-start gap-3 min-w-0">
+                   <div className="p-2.5 bg-yellow-400 text-neutral-950 rounded-xl border border-neutral-950 shrink-0 mt-0.5">
+                     <Wrench className="w-5 h-5" />
+                   </div>
+                   <div className="min-w-0">
+                     <div className="flex items-center gap-2">
+                       <h3 className="text-sm font-bold text-slate-900">Under Maintenance Banner</h3>
+                       <span
+                         className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                           siteStatus.underMaintenance
+                             ? "bg-neutral-950 text-yellow-300"
+                             : "bg-slate-200 text-slate-600"
+                         }`}
+                       >
+                         {siteStatus.underMaintenance ? "ON" : "OFF"}
+                       </span>
+                     </div>
+                     <p className="text-xs text-slate-500 mt-1">
+                       Shows yellow &amp; black Under Maintenance notice in the top banner slot.
+                     </p>
+                   </div>
+                 </div>
+                 <button
+                   type="button"
+                   role="switch"
+                   aria-checked={siteStatus.underMaintenance}
+                   aria-label="Toggle Under Maintenance Banner"
+                   disabled={isSavingSiteStatus}
+                   onClick={() => handleToggleSiteStatus("underMaintenance")}
+                   className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 ${
+                     siteStatus.underMaintenance
+                       ? "bg-yellow-400 border-neutral-950"
+                       : "bg-slate-200 border-slate-300"
+                   }`}
+                 >
+                   <span
+                     className={`inline-block h-6 w-6 transform rounded-full shadow-sm transition-transform duration-200 ${
+                       siteStatus.underMaintenance
+                         ? "translate-x-6 bg-neutral-950"
+                         : "translate-x-0.5 bg-white"
+                     }`}
+                   />
+                 </button>
+               </div>
+             </div>
+           </div>
+
            <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm relative overflow-hidden">
              <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-20"></div>
              <div className="relative z-10 flex flex-col md:flex-row md:items-start justify-between gap-6">
@@ -2788,7 +2992,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* Ingestion Config Panels */}
-            <div className="relative z-10 mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="relative z-10 mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Target / Fallback Province</label>
                 <select
@@ -2853,30 +3057,8 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <div>
-                <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5 ml-1">Update Protection Lock</label>
-                <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-800">
-                  <span className="flex items-center gap-1.5" title="Locks ads against removal during docker rebuilds or script updates">
-                    🔒 Lock against updates
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setCsvLockEnabled(!csvLockEnabled)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      csvLockEnabled ? 'bg-emerald-600' : 'bg-slate-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                        csvLockEnabled ? 'translate-x-4' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-
               {/* CSV Parsing Target File Box */}
-              <div className="md:col-span-2">
+              <div>
                 <label className="text-[10px] font-bold uppercase text-slate-550 block mb-1.5 ml-1">Select CSV Directory File(s)</label>
                 <div className="relative flex items-center">
                   <input
@@ -3608,6 +3790,144 @@ export default function AdminDashboard() {
 
       {activeTab === 'overview' && (
         <>
+          {/* Live Site Top Banner Controls (Under Construction & Under Maintenance) */}
+          <div
+            data-testid="admin-site-status-controls"
+            className="bg-white rounded-3xl p-6 border-2 border-neutral-950 shadow-sm mb-8"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-yellow-400 text-neutral-950 rounded-xl border-2 border-neutral-950 shrink-0">
+                  <Construction className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 font-display">
+                    Live Site Top Banner Controls (Under Construction &amp; Under Maintenance)
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Controls the yellow &amp; black notice banner shown below the navbar across the live site.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {siteStatusFeedback && (
+                  <span className="px-3 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                    {siteStatusFeedback}
+                  </span>
+                )}
+                <span
+                  className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border ${
+                    siteStatus.underConstruction || siteStatus.underMaintenance
+                      ? "bg-yellow-400 text-neutral-950 border-neutral-950"
+                      : "bg-slate-100 text-slate-600 border-slate-200"
+                  }`}
+                >
+                  {siteStatus.underConstruction || siteStatus.underMaintenance
+                    ? "Live on Site"
+                    : "All Banners Off"}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="p-2 bg-yellow-400 text-neutral-950 rounded-xl border border-neutral-950 shrink-0 mt-0.5">
+                    <Construction className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-900">Under Construction Banner</h3>
+                      <span
+                        data-testid="status-badge-under-construction"
+                        className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                          siteStatus.underConstruction
+                            ? "bg-neutral-950 text-yellow-300"
+                            : "bg-slate-200 text-slate-600"
+                        }`}
+                      >
+                        {siteStatus.underConstruction ? "ON" : "OFF"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Yellow &amp; black Under Construction banner below navbar
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  id="overview-toggle-under-construction"
+                  aria-checked={siteStatus.underConstruction}
+                  aria-label="Toggle Under Construction Banner"
+                  disabled={isSavingSiteStatus}
+                  onClick={() => handleToggleSiteStatus("underConstruction")}
+                  className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 ${
+                    siteStatus.underConstruction
+                      ? "bg-yellow-400 border-neutral-950"
+                      : "bg-slate-200 border-slate-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-6 w-6 transform rounded-full shadow-sm transition-transform duration-200 ${
+                      siteStatus.underConstruction
+                        ? "translate-x-6 bg-neutral-950"
+                        : "translate-x-0.5 bg-white"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="p-2 bg-yellow-400 text-neutral-950 rounded-xl border border-neutral-950 shrink-0 mt-0.5">
+                    <Wrench className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-900">Under Maintenance Banner</h3>
+                      <span
+                        data-testid="status-badge-under-maintenance"
+                        className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                          siteStatus.underMaintenance
+                            ? "bg-neutral-950 text-yellow-300"
+                            : "bg-slate-200 text-slate-600"
+                        }`}
+                      >
+                        {siteStatus.underMaintenance ? "ON" : "OFF"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Yellow &amp; black Under Maintenance notice in the top banner slot
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  id="overview-toggle-under-maintenance"
+                  aria-checked={siteStatus.underMaintenance}
+                  aria-label="Toggle Under Maintenance Banner"
+                  disabled={isSavingSiteStatus}
+                  onClick={() => handleToggleSiteStatus("underMaintenance")}
+                  className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 ${
+                    siteStatus.underMaintenance
+                      ? "bg-yellow-400 border-neutral-950"
+                      : "bg-slate-200 border-slate-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-6 w-6 transform rounded-full shadow-sm transition-transform duration-200 ${
+                      siteStatus.underMaintenance
+                        ? "translate-x-6 bg-neutral-950"
+                        : "translate-x-0.5 bg-white"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center hover:border-emerald-200 transition-colors">
               <div className="bg-emerald-50 p-4 rounded-xl mr-5 text-emerald-600">

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect } from 'react';
 import { safeLocalStorage, cleanAdsArray, saveCategoryAdsCounts } from '@/lib/data';
+import { saveStoredSiteSettings } from '@/lib/site-settings';
 
 export function DataSyncer() {
   useEffect(() => {
@@ -63,6 +64,10 @@ export function DataSyncer() {
                   safeLocalStorage.setItem("searchbiz_custom_partners", nextPartners);
                 }
               }
+            }
+
+            if (data.siteSettings && typeof data.siteSettings === "object") {
+              saveStoredSiteSettings(data.siteSettings);
             }
 
             if (adsChanged) {

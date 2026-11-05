@@ -7,6 +7,7 @@ import { Footer } from '@/components/footer';
 import { GlobalAdBanner, ConsentBanner, LegalModal } from '@/components/ui-extras';
 import { trackPageView } from '@/lib/analytics-utils';
 import { DataSyncer } from '@/components/data-syncer';
+import { SiteStatusBanner } from '@/components/site-status-banner';
 import { ArrowUp } from 'lucide-react';
 
 export function LayoutWrapper({ children }: { children: React.ReactNode }) {
@@ -73,6 +74,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
       <div className="flex flex-col min-h-screen w-full overflow-x-hidden">
         <GlobalAdBanner position="top" />
         <Navbar />
+        <SiteStatusBanner />
         <main className="flex-grow flex flex-col overflow-x-hidden w-full max-w-full">
           {children}
         </main>

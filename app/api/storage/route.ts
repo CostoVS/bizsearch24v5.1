@@ -9,6 +9,7 @@ import { resolveAdGeographyAndCategory } from '@/lib/ad-normalizer';
 import { isSubcategoryOf, CATEGORIES_STRUCTURED, stripCategoryNumber } from '@/lib/categories';
 import { writeStorageJsonNonBlocking, readLargeStorageJsonSync, createBotAdBatch } from '@/lib/bot-ad-service';
 import { compareAdsByPostalCodeAndSuburb } from '@/lib/data';
+import { getServerSiteSettings, saveServerSiteSettings } from '@/lib/site-settings-server';
 
 interface CatIndexEntry {
   keys: string[];
@@ -1318,6 +1319,7 @@ export async function GET(req: Request) {
         deletedMessages: baseData.deletedMessages || [],
         customPartners: baseData.customPartners || [],
         community_posts: baseData.community_posts || [],
+        siteSettings: getServerSiteSettings(),
         ads: indexed.allActiveAds.slice(0, 24)
       }, {
         headers: {
@@ -1741,6 +1743,7 @@ export async function GET(req: Request) {
           community_posts: baseData.community_posts || [],
           slugs: baseData.slugs || [],
           claimRequests: baseData.claimRequests || [],
+          siteSettings: getServerSiteSettings(),
           updatedAt: baseData.updatedAt || Date.now(),
           totalAdsCount: filteredTotal,
           verifiedCount: filteredVerified,
@@ -2041,6 +2044,9 @@ export async function POST(req: Request) {
       }
     } else {
       Object.assign(newData, body);
+      if (body.siteSettings && typeof body.siteSettings === 'object') {
+        newData.siteSettings = saveServerSiteSettings(body.siteSettings);
+      }
       let deletedFiltered = false;
       if (Array.isArray(body.deletedAds) && Array.isArray(newData.ads)) {
         const delSet = new Set(body.deletedAds);

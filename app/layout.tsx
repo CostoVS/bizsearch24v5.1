@@ -36,7 +36,9 @@ export default function RootLayout({
       <body className={`${inter.className} antialiased min-h-screen flex flex-col bg-[#f8f9fa] overflow-x-hidden w-full`}>
         <ScrollToTop />
         <AuthProvider>
-          <LayoutWrapper>{children}</LayoutWrapper>
+          <LayoutWrapper>
+            {children}
+          </LayoutWrapper>
         </AuthProvider>
       </body>
     </html>

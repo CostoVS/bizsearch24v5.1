@@ -138,21 +138,25 @@ fi
 
 # Ensure .env has active SearchBiz API and Mox Mail Server (ai@searchbiz.co.za) credentials
 if [ -f "${APP_DIR}/.env" ]; then
+    AI_MOX_PASS=""
+    if [ -f "/root/.searchbiz_mail_credentials.txt" ]; then
+        AI_MOX_PASS="$(awk -F'Pass: ' '/^ai@searchbiz\.co\.za/{print $2}' /root/.searchbiz_mail_credentials.txt | awk '{print $1}' | tr -d '\r')"
+    fi
     sed -i '/SEARCHBIZ_API_URL/d' "${APP_DIR}/.env"
     sed -i '/SEARCHBIZ_BOT_SECRET/d' "${APP_DIR}/.env"
     sed -i '/SMTP_/d' "${APP_DIR}/.env"
     sed -i '/IMAP_/d' "${APP_DIR}/.env"
-    cat << 'EOF' >> "${APP_DIR}/.env"
+    cat << EOF >> "${APP_DIR}/.env"
 SEARCHBIZ_API_URL="https://searchbiz.co.za"
 SEARCHBIZ_BOT_SECRET="searchbiz_agent_key_2026"
-SMTP_HOST="127.0.0.1"
-SMTP_PORT="587"
+SMTP_HOST="mail.searchbiz.co.za"
+SMTP_PORT="465"
 SMTP_USER="ai@searchbiz.co.za"
-SMTP_PASS="HermesAI@2026!"
-IMAP_HOST="127.0.0.1"
+SMTP_PASS="${AI_MOX_PASS}"
+IMAP_HOST="mail.searchbiz.co.za"
 IMAP_PORT="993"
 IMAP_USER="ai@searchbiz.co.za"
-IMAP_PASS="HermesAI@2026!"
+IMAP_PASS="${AI_MOX_PASS}"
 EOF
 fi
 

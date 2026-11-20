@@ -449,6 +449,9 @@ export async function verifySmtpConnection(role: EmailRole = 'admin'): Promise<{
     } catch (err: any) {
       transporter.close();
       errors.push(`${candidate.host}:${candidate.port} -> ${err?.message || String(err)}`);
+      if (isAuthError(err)) {
+        break;
+      }
     }
   }
 

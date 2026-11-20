@@ -1,0 +1,508 @@
+Welcome to Termux
+
+Docs:       https://doc.termux.com
+Community:  https://community.termux.com
+
+Working with packages:
+ - Search:  pkg search <query>
+ - Install: pkg install <package>
+ - Upgrade: pkg upgrade
+
+Report issues at https://bugs.termux.com
+~ $ ssh thehightable@62.171.158.235
+***************************************************************************
+*                            AUTHORIZED ACCESS ONLY                       *
+* Disconnect IMMEDIATELY if you are not an authorized user. All activity  *
+* on this system is monitored and logged.                                 *
+***************************************************************************
+thehightable@62.171.158.235's password:
+Welcome to Ubuntu 24.04.5 LTS (GNU/Linux 6.8.0-149-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Fri Nov 20 19:36:03 SAST 2026
+
+  System load:           0.6
+  Usage of /:            22.4% of 144.26GB
+  Memory usage:          34%
+  Swap usage:            7%
+  Processes:             224
+  Users logged in:       1
+  IPv4 address for eth0: 62.171.158.235
+  IPv6 address for eth0: 2a02:c207:2314:6532::1
+
+  => There is 1 zombie process.
+
+ * Canonical Workshop gives developers fast, composable, reproducible, and
+   secure developer environments that are perfect for agentic workflows.
+
+   https://ubuntu.com/workshop
+
+Expanded Security Maintenance for Applications is not enabled.
+
+11 updates can be applied immediately.
+1 of these updates is a standard security update.
+To see these additional updates run: apt list --upgradable
+
+18 additional security updates can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '26.04.1 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+  _____
+ / ___/___  _  _ _____ _   ___  ___
+| |   / _ \| \| |_   _/ \ | _ )/ _ \
+| |__| (_) | .` | | |/ _ \| _ \ (_) |
+ \____\___/|_|\_| |_/_/ \_|___/\___/
+
+Welcome!
+
+This server is hosted by Contabo. If you have any questions or need help,
+please raise a support ticket from your customer control panel.
+Last login: Fri Nov 20 15:51:26 2026 from 41.116.39.201
+thehightable@vmi3146532:~$ sudo -i
+[sudo] password for thehightable:
+root@vmi3146532:~# cd /home/thehightable/thehightable/searchbiz
+root@vmi3146532:/home/thehightable/thehightable/searchbiz# git fetch origin && git reset --hard origin/main
+remote: Enumerating objects: 73, done.
+remote: Counting objects: 100% (73/73), done.
+remote: Compressing objects: 100% (28/28), done.
+remote: Total 40 (delta 23), reused 0 (delta 0), pack-reused 0 (from 0)
+Unpacking objects: 100% (40/40), 108.73 KiB | 1.21 MiB/s, done.
+From https://github.com/CostoVS/bizsearch24v5.1
+   82c7289..f80fb4e  main       -> origin/main
+HEAD is now at f80fb4e A428
+root@vmi3146532:/home/thehightable/thehightable/searchbiz# chmod +x update.sh && ./update.sh
+Updating SearchBiz Web & Agent...
+Syncing latest repository changes from GitHub...
+HEAD is now at f80fb4e A428
+Migrating legacy Gmail SMTP settings in .env to Mox Mail Server...
+Rebuilding and starting searchbiz-postgres-db and searchbiz-web containers...
+WARN[0001] Docker Compose is configured to build using Bake, but buildx isn't installed
+[+] Building 410.1s (23/23) FINISHED                     docker:default
+ => [web internal] load build definition from Dockerfile           0.1s
+ => => transferring dockerfile: 1.93kB                             0.1s
+ => [web internal] load metadata for docker.io/library/node:20-al  0.8s
+ => [web internal] load .dockerignore                              0.0s
+ => => transferring context: 374B                                  0.0s
+ => [web internal] load build context                              0.3s
+ => => transferring context: 521.36kB                              0.3s
+ => [web deps 1/6] FROM docker.io/library/node:20-alpine@sha256:f  0.2s
+ => => resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85  0.2s
+ => CACHED [web builder 2/5] WORKDIR /app                          0.0s
+ => CACHED [web deps 2/6] RUN apk add --no-cache libc6-compat      0.0s
+ => CACHED [web deps 3/6] WORKDIR /app                             0.0s
+ => CACHED [web deps 4/6] RUN npm config set fetch-retries 5       0.0s
+ => CACHED [web deps 5/6] COPY package.json package-lock.json* ./  0.0s
+ => CACHED [web deps 6/6] RUN npm install --no-audit --no-fund     0.0s
+ => CACHED [web builder 3/5] COPY --from=deps /app/node_modules .  0.0s
+ => [web builder 4/5] COPY . .                                     0.7s
+ => [web builder 5/5] RUN npm run build                          381.5s
+ => CACHED [web runner 3/9] RUN apk add --no-cache su-exec     &&  0.0s
+ => [web runner 4/9] COPY --from=builder /app/public ./public      0.2s
+ => [web runner 5/9] RUN mkdir -p .next .data data && chown -R ne  1.5s
+ => [web runner 6/9] COPY --from=builder --chown=nextjs:nodejs /a  1.8s
+ => [web runner 7/9] COPY --from=builder --chown=nextjs:nodejs /a  0.4s
+ => [web runner 8/9] COPY --from=builder /app/docker-entrypoint.s  0.3s
+ => [web runner 9/9] RUN chmod +x /app/docker-entrypoint.sh        0.8s
+ => [web] exporting to image                                      13.8s
+ => => exporting layers                                            9.4s
+ => => exporting manifest sha256:c7db4a5960e9e35e5f9c488da85e929e  0.1s
+ => => exporting config sha256:5c59da54f3b9f98f902c6c35953f4bec2c  0.1s
+ => => exporting attestation manifest sha256:48da95bf3f56d737c875  0.1s
+ => => exporting manifest list sha256:a6a746ddc8fe03e5292a81cd6d1  0.1s
+ => => naming to docker.io/library/searchbiz-web:latest            0.0s
+ => => unpacking to docker.io/library/searchbiz-web:latest         3.9s
+ => [web] resolving provenance for metadata file                   0.1s
+[+] Running 3/3
+ ✔ web                              Built                          0.0s
+ ✔ Container searchbiz-postgres-db  Healthy                        3.7s
+ ✔ Container searchbiz-web          S...                           4.4s
+Updating Hermes VPS Agent...
+🧹 Freeing inactive VPS RAM buffers & stopping old agent instance before update...
+📦 Checking ffmpeg and audio decoder tools on VPS...
+✅ ffmpeg and flac already installed.
+📦 Checking Python dependencies (faster-whisper, vosk, edge-tts, beautifulsoup4, schedule, playwright)...
+📥 Installing missing Python packages...
+Collecting faster-whisper
+  Using cached faster_whisper-1.2.1-py3-none-any.whl.metadata (16 kB)
+Collecting vosk
+  Using cached vosk-0.3.45-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.whl.metadata (1.8 kB)
+Collecting edge-tts
+  Using cached edge_tts-7.3.1-py3-none-any.whl.metadata (6.1 kB)
+Requirement already satisfied: requests in /usr/lib/python3/dist-packages (2.31.0)
+Collecting python-docx
+  Using cached python_docx-1.2.0-py3-none-any.whl.metadata (2.0 kB)
+Collecting reportlab
+  Using cached reportlab-5.1.0-py3-none-any.whl.metadata (1.6 kB)
+Collecting pillow
+  Using cached pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (9.1 kB)
+Collecting beautifulsoup4
+  Using cached beautifulsoup4-4.15.0-py3-none-any.whl.metadata (3.8 kB)
+Collecting schedule
+  Using cached schedule-1.2.2-py3-none-any.whl.metadata (3.8 kB)
+Collecting playwright
+  Using cached playwright-1.65.2-py3-none-manylinux1_x86_64.whl.metadata (3.3 kB)
+Collecting ctranslate2<5,>=4.0 (from faster-whisper)
+  Using cached ctranslate2-4.9.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting huggingface-hub>=0.21 (from faster-whisper)
+  Using cached huggingface_hub-2.4.0-py3-none-any.whl.metadata (16 kB)
+Collecting tokenizers<1,>=0.13 (from faster-whisper)
+  Using cached tokenizers-0.23.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (9.8 kB)
+Collecting onnxruntime<2,>=1.14 (from faster-whisper)
+  Using cached onnxruntime-1.32.0-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (5.8 kB)
+Collecting av>=11 (from faster-whisper)
+  Using cached av-19.0.2-cp312-abi3-manylinux_2_28_x86_64.whl.metadata (5.0 kB)
+Collecting tqdm (from faster-whisper)
+  Using cached tqdm-4.70.1-py3-none-any.whl.metadata (57 kB)
+Collecting cffi>=1.0 (from vosk)
+  Using cached cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.5 kB)
+Collecting srt (from vosk)
+  Using cached srt-3.5.3-py3-none-any.whl
+Requirement already satisfied: websockets in /usr/local/lib/python3.12/dist-packages (from vosk) (17.4)
+Collecting aiohttp<4.0.0,>=3.8.0 (from edge-tts)
+  Using cached aiohttp-3.14.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (8.3 kB)
+Requirement already satisfied: certifi>=2023.11.17 in /usr/lib/python3/dist-packages (from edge-tts) (2023.11.17)
+Collecting tabulate<1.0.0,>=0.4.4 (from edge-tts)
+  Using cached tabulate-0.10.0-py3-none-any.whl.metadata (40 kB)
+Requirement already satisfied: typing-extensions<5.0.0,>=4.1.0 in /usr/local/lib/python3.12/dist-packages (from edge-tts) (4.16.0)
+Collecting lxml>=3.1.0 (from python-docx)
+  Using cached lxml-6.1.3-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (3.3 kB)
+Collecting charset-normalizer (from reportlab)
+  Using cached charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (46 kB)
+Collecting soupsieve>=1.6.1 (from beautifulsoup4)
+  Downloading soupsieve-4.1.3-py3-none-any.whl.metadata (4.4 kB)
+Collecting greenlet<4.0.0,>=3.1.1 (from playwright)
+  Using cached greenlet-3.5.6-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (3.8 kB)
+Collecting aiohappyeyeballs>=2.5.0 (from aiohttp<4.0.0,>=3.8.0->edge-tts)
+  Using cached aiohappyeyeballs-2.7.1-py3-none-any.whl.metadata (5.9 kB)
+Collecting aiosignal>=1.4.0 (from aiohttp<4.0.0,>=3.8.0->edge-tts)
+  Using cached aiosignal-1.4.0-py3-none-any.whl.metadata (3.7 kB)
+Requirement already satisfied: attrs>=17.3.0 in /usr/lib/python3/dist-packages (from aiohttp<4.0.0,>=3.8.0->edge-tts) (23.2.0)
+Collecting frozenlist>=1.1.1 (from aiohttp<4.0.0,>=3.8.0->edge-tts)
+  Using cached frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (20 kB)
+Collecting multidict<8.0,>=4.5 (from aiohttp<4.0.0,>=3.8.0->edge-tts)
+  Using cached multidict-7.2.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (6.1 kB)
+Collecting propcache>=0.2.0 (from aiohttp<4.0.0,>=3.8.0->edge-tts)
+  Using cached propcache-0.5.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (25 kB)
+Collecting yarl<2.0,>=1.25.1 (from aiohttp<4.0.0,>=3.8.0->edge-tts)
+  Using cached yarl-1.25.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (111 kB)
+Collecting pycparser (from cffi>=1.0->vosk)
+  Using cached pycparser-3.12-py3-none-any.whl.metadata (9.7 kB)
+Collecting numpy (from ctranslate2<5,>=4.0->faster-whisper)
+  Using cached numpy-2.5.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+Requirement already satisfied: pyyaml<7,>=5.3 in /usr/lib/python3/dist-packages (from ctranslate2<5,>=4.0->faster-whisper) (6.0.1)
+Collecting click<9.0.0,>=8.4.2 (from huggingface-hub>=0.21->faster-whisper)
+  Using cached click-8.5.1-py3-none-any.whl.metadata (2.6 kB)
+Collecting filelock>=3.10.0 (from huggingface-hub>=0.21->faster-whisper)
+  Using cached filelock-4.2.12-py3-none-any.whl.metadata (2.3 kB)
+Collecting fsspec>=2023.5.0 (from huggingface-hub>=0.21->faster-whisper)
+  Using cached fsspec-2026.9.0-py3-none-any.whl.metadata (10 kB)
+Collecting hf-xet<2.0.0,>=1.6.0 (from huggingface-hub>=0.21->faster-whisper)
+  Using cached hf_xet-1.8.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (4.9 kB)
+Collecting httpx2<3,>=2.0.0 (from huggingface-hub>=0.21->faster-whisper)
+  Using cached httpx2-2.16.2-py3-none-any.whl.metadata (10.0 kB)
+Requirement already satisfied: packaging>=20.9 in /usr/lib/python3/dist-packages (from huggingface-hub>=0.21->faster-whisper) (24.0)
+Requirement already satisfied: flatbuffers in /usr/local/lib/python3.12/dist-packages (from onnxruntime<2,>=1.14->faster-whisper) (25.12.19)
+Collecting protobuf>=4.25.8 (from onnxruntime<2,>=1.14->faster-whisper)
+  Using cached protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl.metadata (595 bytes)
+Collecting anyio>=4.10 (from httpx2<3,>=2.0.0->huggingface-hub>=0.21->faster-whisper)
+  Using cached anyio-4.16.0-py3-none-any.whl.metadata (4.7 kB)
+Collecting httpcore2==2.16.2 (from httpx2<3,>=2.0.0->huggingface-hub>=0.21->faster-whisper)
+  Using cached httpcore2-2.16.2-py3-none-any.whl.metadata (28 kB)
+Collecting idna>=3.18 (from httpx2<3,>=2.0.0->huggingface-hub>=0.21->faster-whisper)
+  Using cached idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+Collecting truststore>=0.10 (from httpx2<3,>=2.0.0->huggingface-hub>=0.21->faster-whisper)
+  Using cached truststore-0.10.5-py3-none-any.whl.metadata (4.5 kB)
+Collecting h11>=0.16 (from httpcore2==2.16.2->httpx2<3,>=2.0.0->huggingface-hub>=0.21->faster-whisper)
+  Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+Using cached faster_whisper-1.2.1-py3-none-any.whl (1.1 MB)
+Using cached vosk-0.3.45-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.whl (7.2 MB)
+Using cached edge_tts-7.3.1-py3-none-any.whl (38 kB)
+Using cached python_docx-1.2.0-py3-none-any.whl (252 kB)
+Using cached reportlab-5.1.0-py3-none-any.whl (2.0 MB)
+Using cached pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (7.1 MB)
+Using cached beautifulsoup4-4.15.0-py3-none-any.whl (109 kB)
+Using cached schedule-1.2.2-py3-none-any.whl (12 kB)
+Using cached playwright-1.65.2-py3-none-manylinux1_x86_64.whl (53.5 MB)
+Using cached aiohttp-3.14.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (1.9 MB)
+Using cached av-19.0.2-cp312-abi3-manylinux_2_28_x86_64.whl (35.0 MB)
+Using cached cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (221 kB)
+Using cached ctranslate2-4.9.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (42.8 MB)
+Using cached greenlet-3.5.6-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (621 kB)
+Using cached huggingface_hub-2.4.0-py3-none-any.whl (857 kB)
+Using cached lxml-6.1.3-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (5.2 MB)
+Using cached onnxruntime-1.32.0-cp312-cp312-manylinux_2_28_x86_64.whl (27.8 MB)
+Downloading soupsieve-4.1.3-py3-none-any.whl (59 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 59.8/59.8 kB 560.9 kB/s eta 0:00:00
+Using cached tabulate-0.10.0-py3-none-any.whl (39 kB)
+Using cached tokenizers-0.23.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (3.4 MB)
+Using cached tqdm-4.70.1-py3-none-any.whl (80 kB)
+Using cached charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (257 kB)
+Using cached aiohappyeyeballs-2.7.1-py3-none-any.whl (15 kB)
+Using cached aiosignal-1.4.0-py3-none-any.whl (7.5 kB)
+Using cached click-8.5.1-py3-none-any.whl (126 kB)
+Using cached filelock-4.2.12-py3-none-any.whl (222 kB)
+Using cached frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (242 kB)
+Using cached fsspec-2026.9.0-py3-none-any.whl (221 kB)
+Using cached hf_xet-1.8.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (4.3 MB)
+Using cached httpx2-2.16.2-py3-none-any.whl (97 kB)
+Using cached httpcore2-2.16.2-py3-none-any.whl (85 kB)
+Using cached multidict-7.2.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (516 kB)
+Using cached numpy-2.5.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (15.7 MB)
+Using cached propcache-0.5.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (250 kB)
+Using cached protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl (343 kB)
+Using cached yarl-1.25.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (117 kB)
+Using cached pycparser-3.12-py3-none-any.whl (62 kB)
+Using cached anyio-4.16.0-py3-none-any.whl (134 kB)
+Using cached idna-3.20-py3-none-any.whl (69 kB)
+Using cached truststore-0.10.5-py3-none-any.whl (19 kB)
+Using cached h11-0.16.0-py3-none-any.whl (37 kB)
+Installing collected packages: truststore, tqdm, tabulate, srt, soupsieve, schedule, pycparser, protobuf, propcache, pillow, numpy, multidict, lxml, idna, hf-xet, h11, greenlet, fsspec, frozenlist, filelock, click, charset-normalizer, av, aiohappyeyeballs, yarl, reportlab, python-docx, playwright, onnxruntime, httpcore2, ctranslate2, cffi, beautifulsoup4, anyio, aiosignal, vosk, httpx2, aiohttp, huggingface-hub, edge-tts, tokenizers, faster-whisper
+  Attempting uninstall: idna
+    Found existing installation: idna 3.6
+ERROR: Cannot uninstall idna 3.6, RECORD file not found. Hint: The package was installed by debian.
+🎭 Checking Playwright Stealth Chromium...
+🚀 Updating /opt/hermes-searchbiz scripts and tools...
+🛡️ Verifying SearchBiz uploaded ads database across backups (Zero-RAM O(1) mode)...
+✅ Verified master SearchBiz database (7.64 MB) at ../data/db.json.
+🔄 Restarting hermes-agent service...
+✅ Hermes Agent updated and running!
+● hermes-agent.service - Hermes Autonomous Executive Agent for SearchBiz
+     Loaded: loaded (/etc/systemd/system/hermes-agent.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-11-20 19:44:31 SAST; 64ms ago
+   Main PID: 1027304 (python3)
+      Tasks: 1 (limit: 9483)
+     Memory: 2.9M (peak: 2.9M)
+        CPU: 52ms
+     CGroup: /system.slice/hermes-agent.service
+             └─1027304 /usr/bin/python3 /opt/hermes-searchbiz/hermes_searchbiz_agent.py
+
+Nov 20 19:44:31 vmi3146532 systemd[1]: Started hermes-agent.service - Hermes Autonomous Executive Agent for SearchBiz.
+Pre-warming SearchBiz O(1) RAM Index...
+SearchBiz RAM Index is warm and serving!
+root@vmi3146532:/home/thehightable/thehightable/searchbiz#
+root@vmi3146532:/home/thehightable/thehightable/searchbiz#
+root@vmi3146532:/home/thehightable/thehightable/searchbiz#
+root@vmi3146532:/home/thehightable/thehightable/searchbiz# curl -s "http://127.0.0.1:3005/api/admin/test-email?role=admin"
+url -s "http://127.0.0.1:3005/api/admin/test-email?role=noreply"
+curl -s "http://127.0.0.1:3005/api/admin/test-email?role=ai"
+curl -s "http://127.0.0.1:3005/api/admin/test-email?role=help"{"success":false,"message":"mail.searchbiz.co.za:465 -> Invalid login: 535 5.7.8 bad user/pass (yZNShjw1D8_n61h6ttdy1g) | mail.searchbiz.co.za:587 -> connect ECONNREFUSED 62.171.158.235:587 | host.docker.internal:465 -> connect ECONNREFUSED 172.17.0.1:465 | host.docker.internal:587 -> connect ECONNREFUSED 172.17.0.1:587 | 172.17.0.1:465 -> connect ECONNREFUSED 172.17.0.1:465 | 172.17.0.1:587 -> connect ECONNREFUSED 172.17.0.1:587","config":{"role":"admin","server":"mox","host":"mail.searchbiz.co.za","port":465,"user":"admin@searchbiz.co.za","fromEmail":"admin@searchbiz.co.za","secure":true},"server":"mox","mailboxes":[{"role":"noreply","purpose":"2FA & Login Verification","email":"noreply@searchbiz.co.za","user":"noreply@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"ai","purpose":"AI Assistant & Automation","email":"ai@searchbiz.co.za","user":"ai@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"admin","purpose":"Admin & Broadcasts","email":"admin@searchbiz.co.za","user":"admin@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"help","purpose":"Customer Support & Help Desk","email":"help@searchbiz.co.za","user":"help@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false}],"timestamp":"2026-11-20T17:44:37.879Z"}root@vmi3146532:/home/thehightable/thehightable/searchbiz# curl -s "http://127.0.0.1:3005/api/admin/test-email?role=noreply"
+{"success":false,"message":"mail.searchbiz.co.za:465 -> Invalid login: 535 5.7.8 bad user/pass (EMDW-gFYytjBrxEcCAJqow) | mail.searchbiz.co.za:587 -> connect ECONNREFUSED 62.171.158.235:587 | host.docker.internal:465 -> connect ECONNREFUSED 172.17.0.1:465 | host.docker.internal:587 -> connect ECONNREFUSED 172.17.0.1:587 | 172.17.0.1:465 -> connect ECONNREFUSED 172.17.0.1:465 | 172.17.0.1:587 -> connect ECONNREFUSED 172.17.0.1:587","config":{"role":"noreply","server":"mox","host":"mail.searchbiz.co.za","port":465,"user":"noreply@searchbiz.co.za","fromEmail":"noreply@searchbiz.co.za","secure":true},"server":"mox","mailboxes":[{"role":"noreply","purpose":"2FA & Login Verification","email":"noreply@searchbiz.co.za","user":"noreply@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"ai","purpose":"AI Assistant & Automation","email":"ai@searchbiz.co.za","user":"ai@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"admin","purpose":"Admin & Broadcasts","email":"admin@searchbiz.co.za","user":"admin@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"help","purpose":"Customer Support & Help Desk","email":"help@searchbiz.co.za","user":"help@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false}],"timestamp":"2026-11-20T17:44:38.176Z"}root@vmi3146532:/home/thehightable/thehightable/searchbiz# curl -s "http://127.0.0.1:3005/api/admin/test-email?role=ai"
+{"success":false,"message":"mail.searchbiz.co.za:465 -> Invalid login: 535 5.7.8 bad user/pass (N6Y6UiVsRlXTOFNGMd8IWA) | mail.searchbiz.co.za:587 -> connect ECONNREFUSED 62.171.158.235:587 | host.docker.internal:465 -> connect ECONNREFUSED 172.17.0.1:465 | host.docker.internal:587 -> connect ECONNREFUSED 172.17.0.1:587 | 172.17.0.1:465 -> connect ECONNREFUSED 172.17.0.1:465 | 172.17.0.1:587 -> connect ECONNREFUSED 172.17.0.1:587","config":{"role":"ai","server":"mox","host":"mail.searchbiz.co.za","port":465,"user":"ai@searchbiz.co.za","fromEmail":"ai@searchbiz.co.za","secure":true},"server":"mox","mailboxes":[{"role":"noreply","purpose":"2FA & Login Verification","email":"noreply@searchbiz.co.za","user":"noreply@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"ai","purpose":"AI Assistant & Automation","email":"ai@searchbiz.co.za","user":"ai@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"admin","purpose":"Admin & Broadcasts","email":"admin@searchbiz.co.za","user":"admin@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"help","purpose":"Customer Support & Help Desk","email":"help@searchbiz.co.za","user":"help@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false}],"timestamp":"2026-11-20T17:44:38.361Z"}root@vmi3146532:/home/thehightable/thehightable/searchbiz# curl -s "http://127.0.0.1:3005/api/admin/test-email?role=help"
+{"success":false,"message":"mail.searchbiz.co.za:465 -> Invalid login: 535 5.7.8 bad user/pass (IwCyDsGyRaTeqQ3kk1DrSg) | mail.searchbiz.co.za:587 -> connect ECONNREFUSED 62.171.158.235:587 | host.docker.internal:465 -> connect ECONNREFUSED 172.17.0.1:465 | host.docker.internal:587 -> connect ECONNREFUSED 172.17.0.1:587 | 172.17.0.1:465 -> connect ECONNREFUSED 172.17.0.1:465 | 172.17.0.1:587 -> connect ECONNREFUSED 172.17.0.1:587","config":{"role":"help","server":"mox","host":"mail.searchbiz.co.za","port":465,"user":"help@searchbiz.co.za","fromEmail":"help@searchbiz.co.za","secure":true},"server":"mox","mailboxes":[{"role":"noreply","purpose":"2FA & Login Verification","email":"noreply@searchbiz.co.za","user":"noreply@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"ai","purpose":"AI Assistant & Automation","email":"ai@searchbiz.co.za","user":"ai@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"admin","purpose":"Admin & Broadcasts","email":"admin@searchbiz.co.za","user":"admin@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false},{"role":"help","purpose":"Customer Support & Help Desk","email":"help@searchbiz.co.za","user":"help@searchbiz.co.za","host":"mail.searchbiz.co.za","port":465,"server":"mox","configured":true,"legacyGmailBlocked":false}],"timestamp":"2026-11-20T17:44:46.967Z"}root@vmi3146532:/home/thehightable/thehightable/searchbiz#
+root@vmi3146532:/home/thehightable/thehightable/searchbiz#
+root@vmi3146532:/home/thehightable/thehightable/searchbiz#
+root@vmi3146532:/home/thehightable/thehightable/searchbiz# ls
+AGENTS.md                               instrumentation.ts
+Dockerfile                              lib
+README.md                               listings
+app                                     metadata.json
+components                              next.config.ts
+data                                    package-lock.json
+docker-compose.yml                      package.json
+docker-compose.yml.bak.20261119_114725  postcss.config.js
+docker-compose.yml.original             postcss.config.mjs
+docker-entrypoint.sh                    public
+drizzle                                 push_ads.sh
+drizzle.config.ts                       raw_po_part1.txt
+fix-sort.sh                             raw_po_part2.txt
+force_sync.ts                           raw_po_part3.txt
+generate-categories.js                  tailwind.config.js
+generate-locations.js                   tsconfig.json
+hermes_laya_permanent_memory.json       update.sh
+hermes_searchbiz_agent.py               vps-agent
+hooks
+root@vmi3146532:/home/thehightable/thehightable/searchbiz# cd ..
+root@vmi3146532:/home/thehightable/thehightable# cd ..
+root@vmi3146532:/home/thehightable# cd ..
+root@vmi3146532:/home# cd ..
+root@vmi3146532:/# cd ..
+root@vmi3146532:/# ls
+bin                lib.usr-is-merged  root                sys
+bin.usr-is-merged  lib64              run                 tmp
+boot               lost+found         sbin                usr
+dev                media              sbin.usr-is-merged  var
+etc                mnt                snap
+home               opt                srv
+lib                proc               swapfile
+root@vmi3146532:/# cd root/
+root@vmi3146532:~# ls
+searchbiz-vps-compose.yml
+root@vmi3146532:~# cat searchbiz-vps-compose.yml
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: searchbiz-web
+    restart: always
+    ports:
+      - "127.0.0.1:3005:3000"
+    depends_on:
+      - db
+    env_file:
+      - .env.production.local
+    environment:
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://sb_admin_secure_usr:Sb9_kL82_vX97_mQ41_zP30_rN@db:5432/searchbiz_db
+    volumes:
+      - ../data:/app/.data
+      - ./data:/app/data
+    networks:
+      - proxy_network
+      - default
+
+  db:
+    image: postgres:15-alpine
+    container_name: searchbiz-postgres-db
+    restart: always
+    environment:
+      POSTGRES_USER: sb_admin_secure_usr
+      POSTGRES_PASSWORD: Sb9_kL82_vX97_mQ41_zP30_rN
+      POSTGRES_DB: searchbiz_db
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer:latest
+    container_name: searchbiz-adminer
+    restart: always
+    ports:
+      - "127.0.0.1:8085:8080"
+    depends_on:
+      - db
+    networks:
+      - proxy_network
+      - default
+
+volumes:
+  pgdata:
+
+networks:
+  default:
+  proxy_network:
+    external: true
+root@vmi3146532:~# cd ..
+root@vmi3146532:/# ls
+bin                lib.usr-is-merged  root                sys
+bin.usr-is-merged  lib64              run                 tmp
+boot               lost+found         sbin                usr
+dev                media              sbin.usr-is-merged  var
+etc                mnt                snap
+home               opt                srv
+lib                proc               swapfile
+root@vmi3146532:/# cd opt
+root@vmi3146532:/opt# ls
+containerd  hermes-searchbiz  mox
+root@vmi3146532:/opt# cs hermes-searchbiz/
+ls
+Command 'cs' not found, but can be installed with:
+apt install csound
+root@vmi3146532:/opt# ls
+containerd  hermes-searchbiz  mox
+root@vmi3146532:/opt# cd hermes-searchbiz/
+root@vmi3146532:/opt/hermes-searchbiz# ls
+clean_vps.sh                       push_ads.sh
+hermes_data.db                     remove_mailcow.sh
+hermes_data.db-shm                 reset_and_scrape.sh
+hermes_data.db-wal                 sa_areas_database.json
+hermes_laya_permanent_memory.json  scraped_leads_vault
+hermes_searchbiz_agent.py          searchbiz_all_areas.json
+leads_storage                      sent_listings
+listings                           setup_security.sh
+monitor_vps.sh
+root@vmi3146532:/opt/hermes-searchbiz# cd ..
+root@vmi3146532:/opt# cd mox
+root@vmi3146532:/opt/mox# la
+config  data  docker-compose.yml  web
+root@vmi3146532:/opt/mox# cat docker-compose.yml
+services:
+  mox:
+    image: r.xmox.nl/mox:latest
+    container_name: mox
+    restart: unless-stopped
+    network_mode: 'host'
+    environment:
+      - MOX_DOCKER=yes
+      - MOX_UID=1000
+      - MOXCONF=/mox/config/mox.conf
+    volumes:
+      - /opt/mox:/mox
+    working_dir: /mox
+root@vmi3146532:/opt/mox# cd config/
+root@vmi3146532:/opt/mox/config# ls
+adminpasswd  domains.conf                      mail.crt.pem  mox.conf
+dkim         domains.conf.bak.20261119_114725  mail.key.pem
+root@vmi3146532:/opt/mox/config# cat adminpasswd
+$2a$10$SxQgjSX/HIbY.eUarsgG.eP/fMSsfrQ9REeUMGUVDOqlrbfeWpcMKroot@vmi3146532:/opt/mox/config# cat mox.conf
+DataDir: /mox/data
+LogLevel: debug
+User: 1000
+Hostname: mail.searchbiz.co.za
+AdminPasswordFile: /mox/config/adminpasswd
+
+Listeners:
+        internal:
+                IPs:
+                        - 127.0.0.1
+                        - 172.17.0.1
+                Hostname: localhost
+                MTASTSHTTPS:
+                        Enabled: true
+                        Port: 8081
+                        NonTLS: true
+        public:
+                IPs:
+                        - 62.171.158.235
+                        - 2a02:c207:2314:6532::1
+                TLS:
+                        KeyCerts:
+                                -
+                                        CertFile: /mox/config/mail.crt.pem
+                                        KeyFile: /mox/config/mail.key.pem
+                SMTP:
+                        Enabled: true
+                Submissions:
+                        Enabled: true
+                IMAPS:
+                        Enabled: true
+                AdminHTTP:
+                        Enabled: true
+                        Port: 8080
+                        Forwarded: true
+                        Path: /admin/
+
+Postmaster:
+        Account: admin
+        Mailbox: Postmaster
+
+HostTLSRPT:
+        Account: admin
+        Mailbox: TLSRPT
+        Localpart: tlsreports
+root@vmi3146532:/opt/mox/config# ls
+adminpasswd  domains.conf                      mail.crt.pem  mox.conf
+dkim         domains.conf.bak.20261119_114725  mail.key.pem
+root@vmi3146532:/opt/mox/config# cd ..
+root@vmi3146532:/opt/mox# cat /root/.searchbiz_mail_credentials.txt
+=== SEARCHBIZ MOX EMAIL CREDENTIALS (ROTATED 2026-11-19_15:45:03) ===
+SMTP Server: mail.searchbiz.co.za (or 62.171.158.235) | Port 465 (SSL/TLS)
+IMAP Server: mail.searchbiz.co.za (or 62.171.158.235) | Port 993 (SSL/TLS)
+
+admin@searchbiz.co.za   | Account: admin   | Pass: CmO3FeAbhYA+hSAvi0TejU99
+help@searchbiz.co.za    | Account: help    | Pass: 35bLm3r7Og5qEVLzCQrDCb2r
+ai@searchbiz.co.za      | Account: ai      | Pass: 5vLo8lEbTJOW283NkVD6IJ08
+noreply@searchbiz.co.za | Account: noreply | Pass: gTiDxFDmUanGNzcLoIaT4rUy  (SEND-ONLY: rejects all replies with 550)
+root@vmi3146532:/opt/mox#
+root@vmi3146532:/opt/mox#
+root@vmi3146532:/opt/mox#
+root@vmi3146532:/opt/mox#

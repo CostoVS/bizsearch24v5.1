@@ -47,27 +47,47 @@ if [ ! -f ".env" ] && [ -f ".env.example" ]; then
   fi
 fi
 
-# Migrate any legacy Gmail SMTP settings in .env to Mox Mail Server
-if [ -f ".env" ] && grep -qiE "smtp\.gmail\.com|mailsearchbiz@gmail\.com|mail@searchbiz\.co\.za" ".env"; then
-  echo "Migrating legacy Gmail SMTP settings in .env to Mox Mail Server..."
-  sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^FROM_EMAIL=/d' .env
-  cat << 'EOF' >> .env
+# Sync Mox Mail Server settings and credentials into .env
+if [ -f ".env" ]; then
+  if grep -qiE "smtp\.gmail\.com|mailsearchbiz@gmail\.com|mail@searchbiz\.co\.za" ".env"; then
+    echo "Migrating legacy Gmail SMTP settings in .env to Mox Mail Server..."
+    sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^FROM_EMAIL=/d' .env
+  fi
+
+  if [ -f "/root/.searchbiz_mail_credentials.txt" ]; then
+    echo "Syncing Mox mailbox credentials from /root/.searchbiz_mail_credentials.txt into .env..."
+    ADMIN_MOX_PASS="$(awk -F'Pass: ' '/^admin@searchbiz\.co\.za/{print $2}' /root/.searchbiz_mail_credentials.txt | awk '{print $1}' | tr -d '\r')"
+    HELP_MOX_PASS="$(awk -F'Pass: ' '/^help@searchbiz\.co\.za/{print $2}' /root/.searchbiz_mail_credentials.txt | awk '{print $1}' | tr -d '\r')"
+    AI_MOX_PASS="$(awk -F'Pass: ' '/^ai@searchbiz\.co\.za/{print $2}' /root/.searchbiz_mail_credentials.txt | awk '{print $1}' | tr -d '\r')"
+    NOREPLY_MOX_PASS="$(awk -F'Pass: ' '/^noreply@searchbiz\.co\.za/{print $2}' /root/.searchbiz_mail_credentials.txt | awk '{print $1}' | tr -d '\r')"
+
+    sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^FROM_EMAIL=/d' .env
+    sed -i '/^NOREPLY_EMAIL=/d;/^SMTP_NOREPLY_USER=/d;/^SMTP_NOREPLY_PASS=/d' .env
+    sed -i '/^AI_EMAIL=/d;/^SMTP_AI_USER=/d;/^SMTP_AI_PASS=/d' .env
+    sed -i '/^ADMIN_MAILBOX=/d;/^SMTP_ADMIN_USER=/d;/^SMTP_ADMIN_PASS=/d;/^ADMIN_EMAIL=/d' .env
+    sed -i '/^HELP_EMAIL=/d;/^SMTP_HELP_USER=/d;/^SMTP_HELP_PASS=/d' .env
+
+    cat << EOF >> .env
+ADMIN_EMAIL="admin@searchbiz.co.za"
 SMTP_HOST="mail.searchbiz.co.za"
 SMTP_PORT="465"
 SMTP_USER="admin@searchbiz.co.za"
-SMTP_PASS="SearchBizAdmin@2026!"
+SMTP_PASS="${ADMIN_MOX_PASS}"
 FROM_EMAIL="admin@searchbiz.co.za"
 NOREPLY_EMAIL="noreply@searchbiz.co.za"
 SMTP_NOREPLY_USER="noreply@searchbiz.co.za"
+SMTP_NOREPLY_PASS="${NOREPLY_MOX_PASS}"
 AI_EMAIL="ai@searchbiz.co.za"
 SMTP_AI_USER="ai@searchbiz.co.za"
-SMTP_AI_PASS="HermesAI@2026!"
+SMTP_AI_PASS="${AI_MOX_PASS}"
 ADMIN_MAILBOX="admin@searchbiz.co.za"
 SMTP_ADMIN_USER="admin@searchbiz.co.za"
-SMTP_ADMIN_PASS="SearchBizAdmin@2026!"
+SMTP_ADMIN_PASS="${ADMIN_MOX_PASS}"
 HELP_EMAIL="help@searchbiz.co.za"
 SMTP_HELP_USER="help@searchbiz.co.za"
+SMTP_HELP_PASS="${HELP_MOX_PASS}"
 EOF
+  fi
 fi
 
 mkdir -p .data data

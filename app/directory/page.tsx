@@ -44,20 +44,9 @@ function DirectoryContent() {
     return true;
   }, []);
 
-  const [allAds, setAllAds] = useState<any[]>(() => {
-    if (typeof window !== 'undefined' && !hasFilters) {
-      return getStoredAds().filter(a => a && a.isActive !== false);
-    }
-    return [];
-  });
+  const [allAds, setAllAds] = useState<any[]>([]);
   const [serverFilteredAds, setServerFilteredAds] = useState<any[] | null>(null);
-  const [serverTotalCount, setServerTotalCount] = useState<number | null>(() => {
-    if (typeof window !== 'undefined' && !hasFilters) {
-      const cnt = getTotalAdsCount();
-      return cnt > 0 ? cnt : null;
-    }
-    return null;
-  });
+  const [serverTotalCount, setServerTotalCount] = useState<number | null>(null);
   const [selectedAd, setSelectedAd] = useState<any | null>(null);
   const [isLocalLoading, setIsLocalLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -209,6 +198,10 @@ function DirectoryContent() {
       const cached = getStoredAds().filter(isAdVisible);
       if (cached.length > 0) {
         setAllAds(prev => (prev.length === 0 ? cached : prev));
+      }
+      const cnt = getTotalAdsCount();
+      if (cnt > 0) {
+        setServerTotalCount(prev => (prev === null ? cnt : prev));
       }
     }
 
@@ -604,7 +597,7 @@ function DirectoryContent() {
       </div>
 
       <div ref={resultsRef} className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <p className="text-slate-500 font-medium">Found {totalMatchingAds.toLocaleString()} businesses matching your criteria.</p>
+        <p className="text-slate-500 font-medium">Found {totalMatchingAds.toLocaleString('en-US')} businesses matching your criteria.</p>
       </div>
 
       {isLocalLoading && paginatedResults.length === 0 ? (
@@ -647,7 +640,7 @@ function DirectoryContent() {
           {/* Display Controls & Stats */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
             <span className="text-xs font-bold text-slate-700">
-              Showing <span className="text-emerald-700 font-extrabold">{totalMatchingAds.toLocaleString()}</span> listing{totalMatchingAds === 1 ? '' : 's'}
+              Showing <span className="text-emerald-700 font-extrabold">{totalMatchingAds.toLocaleString('en-US')}</span> listing{totalMatchingAds === 1 ? '' : 's'}
               {hasFilters && <span className="text-slate-500 font-normal"> matching your search criteria</span>}
             </span>
 
@@ -680,7 +673,7 @@ function DirectoryContent() {
                     : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
                 }`}
               >
-                All ({totalMatchingAds.toLocaleString()})
+                All ({totalMatchingAds.toLocaleString('en-US')})
               </button>
             </div>
           </div>
@@ -885,7 +878,7 @@ function DirectoryContent() {
           {pageSize >= 999999 && (fullPaginatedResults.length > visibleRenderLimit || totalMatchingAds > fullPaginatedResults.length) && (
             <div ref={loadMoreSentinelRef} className="mt-8 bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-xs sm:text-sm font-bold text-slate-700">
-                Displaying <span className="text-emerald-700 font-extrabold">{Math.min(visibleRenderLimit, fullPaginatedResults.length).toLocaleString()}</span> of <span className="text-slate-900 font-extrabold">{totalMatchingAds.toLocaleString()}</span> matching businesses (No Limits Active)
+                Displaying <span className="text-emerald-700 font-extrabold">{Math.min(visibleRenderLimit, fullPaginatedResults.length).toLocaleString('en-US')}</span> of <span className="text-slate-900 font-extrabold">{totalMatchingAds.toLocaleString('en-US')}</span> matching businesses (No Limits Active)
               </div>
               <div className="flex flex-wrap gap-2">
                 <button

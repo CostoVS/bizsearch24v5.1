@@ -1315,13 +1315,9 @@ interface InvoiceDraft {
 }
 
 function InvoiceTool({ userId }: { userId: string }) {
-  const [invoiceNumber, setInvoiceNumber] = useState(`INV-${new Date().getFullYear()}-0101`);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [dueDate, setDueDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 14);
-    return d.toISOString().split('T')[0];
-  });
+  const [invoiceNumber, setInvoiceNumber] = useState("INV-2026-0101");
+  const [date, setDate] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [currency, setCurrency] = useState("R");
   const [businessName, setBusinessName] = useState("Acme Corporation");
   const [businessEmail, setBusinessEmail] = useState("accounts@acme.com");
@@ -1350,6 +1346,13 @@ function InvoiceTool({ userId }: { userId: string }) {
   const [saveStatus, setSaveStatus] = useState<string>("");
 
   useEffect(() => {
+    const now = new Date();
+    const due = new Date(now);
+    due.setDate(due.getDate() + 14);
+    setInvoiceNumber(`INV-${now.getFullYear()}-0101`);
+    setDate(prev => prev || now.toISOString().split('T')[0]);
+    setDueDate(prev => prev || due.toISOString().split('T')[0]);
+
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem(`bs24_invoices_${userId}`);
       if (saved) {

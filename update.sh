@@ -7,19 +7,52 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-echo "🚀 Updating SearchBiz Web & Agent with Zero-Lag RAM Indexing..."
+echo "Updating SearchBiz Web & Agent..."
+
+PRESERVE_DIR="$(mktemp -d)"
+cleanup_preserve() {
+  rm -rf "${PRESERVE_DIR}"
+}
+trap cleanup_preserve EXIT
+
+for keep_file in ".env" ".data/users-db.json" "data/users-db.json" ".data/2fa-reset-requests.json" "data/2fa-reset-requests.json" ".data/email-otps.json"; do
+  if [ -f "${keep_file}" ]; then
+    mkdir -p "${PRESERVE_DIR}/$(dirname "${keep_file}")"
+    cp -a "${keep_file}" "${PRESERVE_DIR}/${keep_file}"
+  fi
+done
 
 if [ -d ".git" ]; then
-  echo "🔄 Syncing latest repository changes from GitHub (overwriting any untracked conflicts)..."
+  echo "Syncing latest repository changes from GitHub..."
   git fetch origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null || true
 fi
 
+for keep_file in ".env" ".data/users-db.json" "data/users-db.json" ".data/2fa-reset-requests.json" "data/2fa-reset-requests.json" ".data/email-otps.json"; do
+  if [ -f "${PRESERVE_DIR}/${keep_file}" ]; then
+    mkdir -p "$(dirname "${keep_file}")"
+    cp -a "${PRESERVE_DIR}/${keep_file}" "${keep_file}"
+  fi
+done
+
+if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+  echo "No .env found — bootstrapping from .env.example..."
+  cp .env.example .env
+  if command -v openssl &> /dev/null; then
+    RAND_SESS="$(openssl rand -hex 32)"
+    RAND_OTP="$(openssl rand -hex 32)"
+    sed -i "s|replace_with_a_long_random_session_secret|${RAND_SESS}|g" .env 2>/dev/null || true
+    sed -i "s|replace_with_a_long_random_otp_secret|${RAND_OTP}|g" .env 2>/dev/null || true
+  fi
+fi
+
 mkdir -p .data data
+# Ensure non-root nextjs user (uid 1001) in Docker can write to bind-mounted .data and data
+chmod -R a+rwX .data data 2>/dev/null || chmod -R 777 .data data 2>/dev/null || true
 
 if [ -f "docker-compose.yml" ] && command -v docker &> /dev/null; then
-  echo "🐳 Rebuilding and starting searchbiz-web container..."
+  echo "Rebuilding and starting searchbiz-postgres-db and searchbiz-web containers..."
   systemctl start docker 2>/dev/null || true
-  docker compose up --build -d web || docker compose up -d web || docker start searchbiz-web 2>/dev/null || true
+  docker compose up --build -d db web || docker compose up --build -d || docker start searchbiz-web 2>/dev/null || true
 fi
 
 if command -v nginx &> /dev/null; then
@@ -28,19 +61,19 @@ if command -v nginx &> /dev/null; then
 fi
 
 if [ -d "vps-agent" ] && [ -f "vps-agent/update_agent.sh" ]; then
-  echo "🤖 Updating Hermes VPS Agent..."
+  echo "Updating Hermes VPS Agent..."
   (cd vps-agent && bash update_agent.sh) || true
 fi
 
-echo "⚡ Pre-warming SearchBiz O(1) RAM Index..."
-for i in 1 2 3 4 5; do
+echo "Pre-warming SearchBiz O(1) RAM Index..."
+for i in 1 2 3 4 5 6 7 8 9 10; do
   if curl -sSf "http://127.0.0.1:3005/api/storage?statsOnly=true" >/dev/null 2>&1 || curl -sSf "http://127.0.0.1:3000/api/storage?statsOnly=true" >/dev/null 2>&1; then
     curl -s "http://127.0.0.1:3005/api/storage?freeOnly=true&includeFeatured=true&page=1&pageSize=12" >/dev/null 2>&1 || true
     curl -s "http://127.0.0.1:3005/api/storage?page=1&pageSize=24" >/dev/null 2>&1 || true
     curl -s "http://127.0.0.1:3000/api/storage?freeOnly=true&includeFeatured=true&page=1&pageSize=12" >/dev/null 2>&1 || true
     curl -s "http://127.0.0.1:3000/api/storage?page=1&pageSize=24" >/dev/null 2>&1 || true
-    echo "✅ SearchBiz RAM Index is warm and serving in <1ms!"
+    echo "SearchBiz RAM Index is warm and serving!"
     break
   fi
-  sleep 1
+  sleep 2
 done

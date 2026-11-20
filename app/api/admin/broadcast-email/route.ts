@@ -46,16 +46,14 @@ function saveLog(log: BroadcastLog): void {
 
 export async function GET() {
   const logs = readLogs();
-  const smtpHost = (process.env.SMTP_HOST || 'mail.searchbiz.co.za').trim();
-  const smtpUser = (process.env.SMTP_USER || 'admin@searchbiz.co.za').trim();
-  const hasSmtpPass = Boolean(process.env.SMTP_PASS);
+  const smtpConfig = getSmtpConfig();
 
   return NextResponse.json({
     status: 'ready',
-    sender: SENDER_EMAIL,
-    smtpHost,
-    smtpUser,
-    hasSmtpConfigured: hasSmtpPass,
+    sender: smtpConfig.fromEmail || SENDER_EMAIL,
+    smtpHost: smtpConfig.host,
+    smtpUser: smtpConfig.user,
+    hasSmtpConfigured: Boolean(smtpConfig.pass),
     logs
   });
 }
@@ -91,9 +89,12 @@ export async function POST(req: NextRequest) {
       category?: string;
     }> = [];
 
+    const smtpConfig = getSmtpConfig();
+    const effectiveSender = smtpConfig.fromEmail || smtpConfig.user || SENDER_EMAIL;
+
     if (isTest) {
       targetList = [{
-        email: SENDER_EMAIL,
+        email: effectiveSender,
         businessName: 'SearchBiz Verification Test Partner',
         city: 'Johannesburg',
         province: 'Gauteng',
@@ -108,9 +109,6 @@ export async function POST(req: NextRequest) {
     if (targetList.length === 0) {
       return NextResponse.json({ error: 'No valid recipient email addresses found in the selected target group.' }, { status: 400 });
     }
-
-    const smtpConfig = getSmtpConfig();
-    const effectiveSender = SENDER_EMAIL || smtpConfig.fromEmail || smtpConfig.user;
 
     let sentCount = 0;
     const sampleRecipients: string[] = [];
@@ -176,7 +174,7 @@ ${personalizedBody}
     const logEntry: BroadcastLog = {
       id: `broadcast_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       timestamp: new Date().toISOString(),
-      from: SENDER_EMAIL,
+      from: effectiveSender,
       subject,
       targetType: isTest ? 'test_preview' : targetType,
       targetFilter: targetFilter || undefined,
@@ -191,8 +189,8 @@ ${personalizedBody}
     return NextResponse.json({
       success: true,
       message: isTest 
-        ? `Test message successfully prepared and sent to ${SENDER_EMAIL}!` 
-        : `Successfully processed and dispatched ${sentCount.toLocaleString()} email(s) from ${SENDER_EMAIL}!`,
+        ? `Test message successfully prepared and sent to ${effectiveSender}!` 
+        : `Successfully processed and dispatched ${sentCount.toLocaleString()} email(s) from ${effectiveSender}!`,
       log: logEntry
     });
 

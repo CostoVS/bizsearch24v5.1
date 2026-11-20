@@ -94,7 +94,7 @@ export function SitemapCategories() {
                     : "bg-slate-100 text-slate-500 border-slate-200"
                 }`}
               >
-                {count.toLocaleString()} Ads
+                {count.toLocaleString('en-US')} Ads
               </span>
             </Link>
           );

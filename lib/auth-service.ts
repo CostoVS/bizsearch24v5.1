@@ -1,11 +1,16 @@
 import fs from 'fs';
 import path from 'path';
-import { db, initDb, dbReadyPromise, withDbTimeout } from './db';
+import { db, initDb, dbReadyPromise, withDbTimeout, isDbCurrentlyOffline } from './db';
 import { users } from './db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
-// Define structural backup file inside highly durable git-ignored and persistent .data/ directory
+// Define structural backup files inside .data/ and data/ directories for durable persistence
 const FILE_PATH = path.join(process.cwd(), '.data', 'users-db.json');
+const MIRROR_FILE_PATH = path.join(process.cwd(), 'data', 'users-db.json');
+
+const globalUsersRef = globalThis as unknown as {
+  __searchbizUsersCache?: ServerUser[];
+};
 
 export interface ServerUser {
   id: string;
@@ -72,88 +77,123 @@ const DEFAULT_ADMIN: ServerUser = {
   isLocked: false,
 };
 
-// Direct File Operations (Fallback DB)
-function readUsersBackup(): ServerUser[] {
-  try {
-    const fileDir = path.dirname(FILE_PATH);
-    if (!fs.existsSync(fileDir)) {
-      fs.mkdirSync(fileDir, { recursive: true });
-    }
-    const adminWithId = { ...DEFAULT_ADMIN, memberId: generateMemberId(DEFAULT_ADMIN.email) };
-    if (!fs.existsSync(FILE_PATH)) {
-      fs.writeFileSync(FILE_PATH, JSON.stringify([adminWithId], null, 2), 'utf-8');
-      return [adminWithId];
-    }
-    const data = fs.readFileSync(FILE_PATH, 'utf-8');
-    const parsed = JSON.parse(data);
-    
-    let changed = false;
-    parsed.forEach((u: ServerUser) => {
-      if (!u.memberId) {
-        u.memberId = generateMemberId(u.email);
-        changed = true;
-      }
-    });
+function normalizeUserList(parsed: ServerUser[]): { list: ServerUser[]; changed: boolean } {
+  const adminWithId = { ...DEFAULT_ADMIN, memberId: generateMemberId(DEFAULT_ADMIN.email) };
+  let changed = false;
 
-    // Ensure admin exists in list
-    if (!parsed.some((u: ServerUser) => u.email.trim().toLowerCase() === DEFAULT_ADMIN.email.trim().toLowerCase())) {
-      parsed.push(adminWithId);
+  const normalized = parsed.map((u: ServerUser) => {
+    const next = { ...u };
+    if (!next.memberId) {
+      next.memberId = generateMemberId(next.email);
       changed = true;
     }
-    if (changed) {
-      fs.writeFileSync(FILE_PATH, JSON.stringify(parsed, null, 2), 'utf-8');
+    if (!next.secretKey) {
+      next.secretKey = getDeterministicSecretKey(next.email);
+      changed = true;
     }
-    return parsed;
-  } catch (error) {
-    console.error('Failed to read users JSON backup, returning default:', error);
-    return [{ ...DEFAULT_ADMIN, memberId: generateMemberId(DEFAULT_ADMIN.email) }];
+    next.hasSetup2FA = Boolean(next.hasSetup2FA);
+    return next;
+  });
+
+  if (
+    !normalized.some(
+      (u: ServerUser) =>
+        u.email.trim().toLowerCase() === DEFAULT_ADMIN.email.trim().toLowerCase()
+    )
+  ) {
+    normalized.push(adminWithId);
+    changed = true;
   }
+
+  return { list: normalized, changed };
+}
+
+// Direct File Operations (Fallback + Durable Cache)
+function readUsersBackup(): ServerUser[] {
+  if (Array.isArray(globalUsersRef.__searchbizUsersCache) && globalUsersRef.__searchbizUsersCache.length > 0) {
+    return globalUsersRef.__searchbizUsersCache;
+  }
+
+  const adminWithId = { ...DEFAULT_ADMIN, memberId: generateMemberId(DEFAULT_ADMIN.email) };
+
+  for (const candidatePath of [FILE_PATH, MIRROR_FILE_PATH]) {
+    try {
+      if (fs.existsSync(candidatePath)) {
+        const data = fs.readFileSync(candidatePath, 'utf-8');
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const { list, changed } = normalizeUserList(parsed);
+          globalUsersRef.__searchbizUsersCache = list;
+          if (changed || candidatePath !== FILE_PATH) {
+            writeUsersBackup(list);
+          }
+          return list;
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to read users JSON backup from ${candidatePath}:`, error);
+    }
+  }
+
+  const initial = [adminWithId];
+  writeUsersBackup(initial);
+  return initial;
 }
 
 function writeUsersBackup(usersList: ServerUser[]) {
-  try {
-    const fileDir = path.dirname(FILE_PATH);
-    if (!fs.existsSync(fileDir)) {
-      fs.mkdirSync(fileDir, { recursive: true });
+  globalUsersRef.__searchbizUsersCache = usersList;
+  const serialized = JSON.stringify(usersList, null, 2);
+
+  for (const targetPath of [FILE_PATH, MIRROR_FILE_PATH]) {
+    try {
+      const fileDir = path.dirname(targetPath);
+      if (!fs.existsSync(fileDir)) {
+        fs.mkdirSync(fileDir, { recursive: true });
+      }
+      fs.writeFileSync(targetPath, serialized, 'utf-8');
+    } catch (error) {
+      console.error(`Failed to write users JSON backup to ${targetPath}:`, error);
     }
-    fs.writeFileSync(FILE_PATH, JSON.stringify(usersList, null, 2), 'utf-8');
-  } catch (error) {
-    console.error('Failed to write users JSON backup:', error);
   }
 }
 
 // Unified Service API
 export async function getUsersList(): Promise<ServerUser[]> {
-  // Try backup file first to preserve fields like failedAttempts & isLocked, as Postgres schema is simpler
   const backupUsers = readUsersBackup();
-  
+
   try {
     const dClient = initDb();
     if (dClient) {
       if (dbReadyPromise) {
-        await withDbTimeout(dbReadyPromise, 400).catch(() => {});
+        await withDbTimeout(dbReadyPromise, 600).catch(() => {});
       }
-      const dbUsers = await withDbTimeout(dClient.select().from(users), 600);
-      
+      if (isDbCurrentlyOffline() || !db) {
+        return backupUsers;
+      }
+      const dbUsers = await withDbTimeout(dClient.select().from(users), 1000);
+
       const list: ServerUser[] = [];
       if (dbUsers) {
         dbUsers.forEach((u: any) => {
-          const backupU = backupUsers.find(bu => bu.email.trim().toLowerCase() === u.email.trim().toLowerCase());
+          const backupU = backupUsers.find(
+            (bu) => bu.email.trim().toLowerCase() === u.email.trim().toLowerCase()
+          );
           list.push({
-            id: String(u.id),
+            id: backupU?.id || String(u.id),
             email: u.email,
-            password: u.password || '',
+            password: u.password || backupU?.password || '',
             role: (u.role as 'ADMIN' | 'USER') || 'USER',
             plan: (u.plan as 'FREE' | 'PREMIUM' | 'ESSENTIAL' | 'PRO' | 'SPONSOR') || 'FREE',
-            secretKey: u.secretKey || getDeterministicSecretKey(u.email),
-            hasSetup2FA: u.hasSetup2FA || false,
-            phone: u.phone || undefined,
-            failedAttempts: u.failedAttempts || 0,
-            isLocked: u.isLocked || false,
-            fullName: u.fullName || undefined,
-            address: u.address || undefined,
-            businessName: u.businessName || undefined,
-            businessCategory: u.businessCategory || undefined,
+            secretKey: backupU?.secretKey || u.secretKey || getDeterministicSecretKey(u.email),
+            // Never allow a stale DB false row to overwrite an already-verified backup user
+            hasSetup2FA: Boolean(u.hasSetup2FA || backupU?.hasSetup2FA),
+            phone: u.phone || backupU?.phone || undefined,
+            failedAttempts: u.failedAttempts ?? backupU?.failedAttempts ?? 0,
+            isLocked: Boolean(u.isLocked ?? backupU?.isLocked),
+            fullName: u.fullName || backupU?.fullName || undefined,
+            address: u.address || backupU?.address || undefined,
+            businessName: u.businessName || backupU?.businessName || undefined,
+            businessCategory: u.businessCategory || backupU?.businessCategory || undefined,
             idNumber: backupU?.idNumber || undefined,
             memberId: backupU?.memberId || generateMemberId(u.email),
           });
@@ -166,28 +206,30 @@ export async function getUsersList(): Promise<ServerUser[]> {
           list.push(backupUser);
         }
       });
-      
-      // Keep file backup aligned with DB / Merged list
+
       writeUsersBackup(list);
       return list;
     }
   } catch (err) {
-    // Database check failed or timed out - silently fall back to local JSON file
+    // Database check failed or timed out - silently fall back to local JSON file / RAM cache
   }
 
   return backupUsers;
 }
 
 export async function saveUser(newUser: ServerUser): Promise<boolean> {
-  // First update backup file
-  const fileUsers = readUsersBackup();
-  const existingIndex = fileUsers.findIndex((u: any) => u.email.trim().toLowerCase() === newUser.email.trim().toLowerCase());
-  
-  const updatedUser = {
+  const fileUsers = [...readUsersBackup()];
+  const normalizedTarget = newUser.email.trim().toLowerCase();
+  const existingIndex = fileUsers.findIndex(
+    (u: any) => u.email.trim().toLowerCase() === normalizedTarget
+  );
+
+  const updatedUser: ServerUser = {
     ...newUser,
-    // Ensure they have their deterministic secret key assigned
-    secretKey: newUser.secretKey || getDeterministicSecretKey(newUser.email),
-    memberId: newUser.memberId || generateMemberId(newUser.email),
+    email: normalizedTarget,
+    secretKey: newUser.secretKey || getDeterministicSecretKey(normalizedTarget),
+    hasSetup2FA: Boolean(newUser.hasSetup2FA),
+    memberId: newUser.memberId || generateMemberId(normalizedTarget),
   };
 
   if (existingIndex !== -1) {
@@ -202,46 +244,96 @@ export async function saveUser(newUser: ServerUser): Promise<boolean> {
     const dClient = initDb();
     if (dClient) {
       if (dbReadyPromise) {
-        await withDbTimeout(dbReadyPromise, 400).catch(() => {});
+        await withDbTimeout(dbReadyPromise, 600).catch(() => {});
       }
-      // Check if user exists in database
-      const existingDb = await withDbTimeout(dClient.select().from(users).where(eq(users.email, updatedUser.email)), 600);
+      if (isDbCurrentlyOffline() || !db) {
+        return true;
+      }
+      const existingDb = await withDbTimeout(
+        dClient
+          .select()
+          .from(users)
+          .where(sql`LOWER(${users.email}) = ${normalizedTarget}`),
+        1500
+      );
       if (existingDb && existingDb.length > 0) {
-        await withDbTimeout(dClient.update(users).set({
-          password: updatedUser.password,
-          role: updatedUser.role,
-          plan: updatedUser.plan,
-          secretKey: updatedUser.secretKey,
-          hasSetup2FA: updatedUser.hasSetup2FA,
-          phone: updatedUser.phone,
-          failedAttempts: updatedUser.failedAttempts,
-          isLocked: updatedUser.isLocked,
-          fullName: updatedUser.fullName,
-          address: updatedUser.address,
-          businessName: updatedUser.businessName,
-          businessCategory: updatedUser.businessCategory,
-        }).where(eq(users.email, updatedUser.email)), 600);
+        await withDbTimeout(
+          dClient
+            .update(users)
+            .set({
+              email: normalizedTarget,
+              password: updatedUser.password,
+              role: updatedUser.role,
+              plan: updatedUser.plan,
+              secretKey: updatedUser.secretKey,
+              hasSetup2FA: updatedUser.hasSetup2FA,
+              phone: updatedUser.phone,
+              failedAttempts: updatedUser.failedAttempts,
+              isLocked: updatedUser.isLocked,
+              fullName: updatedUser.fullName,
+              address: updatedUser.address,
+              businessName: updatedUser.businessName,
+              businessCategory: updatedUser.businessCategory,
+            })
+            .where(eq(users.id, existingDb[0].id)),
+          1500
+        );
       } else {
-        await withDbTimeout(dClient.insert(users).values({
-          email: updatedUser.email,
-          password: updatedUser.password,
-          role: updatedUser.role,
-          plan: updatedUser.plan,
-          secretKey: updatedUser.secretKey,
-          hasSetup2FA: updatedUser.hasSetup2FA,
-          phone: updatedUser.phone,
-          failedAttempts: updatedUser.failedAttempts,
-          isLocked: updatedUser.isLocked,
-          fullName: updatedUser.fullName,
-          address: updatedUser.address,
-          businessName: updatedUser.businessName,
-          businessCategory: updatedUser.businessCategory,
-        }), 600);
+        await withDbTimeout(
+          dClient.insert(users).values({
+            email: normalizedTarget,
+            password: updatedUser.password,
+            role: updatedUser.role,
+            plan: updatedUser.plan,
+            secretKey: updatedUser.secretKey,
+            hasSetup2FA: updatedUser.hasSetup2FA,
+            phone: updatedUser.phone,
+            failedAttempts: updatedUser.failedAttempts,
+            isLocked: updatedUser.isLocked,
+            fullName: updatedUser.fullName,
+            address: updatedUser.address,
+            businessName: updatedUser.businessName,
+            businessCategory: updatedUser.businessCategory,
+          }),
+          1500
+        );
       }
       return true;
     }
   } catch (dbErr) {
     console.warn('Failed to sync saved user on PostgreSQL, file backup is safe:', (dbErr as any).message);
+  }
+
+  return true;
+}
+
+export async function deleteUserById(id: string): Promise<boolean> {
+  const fileUsers = [...readUsersBackup()];
+  const userToDelete = fileUsers.find((u) => u.id === id);
+  if (!userToDelete) return false;
+
+  const updatedUsers = fileUsers.filter((u) => u.id !== id);
+  writeUsersBackup(updatedUsers);
+
+  try {
+    const dClient = initDb();
+    if (dClient) {
+      if (dbReadyPromise) {
+        await withDbTimeout(dbReadyPromise, 600).catch(() => {});
+      }
+      if (!isDbCurrentlyOffline() && db) {
+        await withDbTimeout(
+          dClient
+            .delete(users)
+            .where(sql`LOWER(${users.email}) = ${userToDelete.email.trim().toLowerCase()}`),
+          1500
+        );
+      }
+    }
+  } catch (dbErr) {
+    if (!isDbCurrentlyOffline()) {
+      console.warn('Failed to delete user on PostgreSQL:', (dbErr as any).message);
+    }
   }
 
   return true;

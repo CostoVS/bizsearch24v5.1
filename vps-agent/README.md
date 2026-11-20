@@ -55,7 +55,7 @@ sudo ./setup_security.sh
 
 ### 💬 Direct Outreach (WhatsApp, Email, Telegram):
 * `/whatsapp [ID or Name]` — Generates click-to-chat WhatsApp sales link with personalized pitch.
-* `/email_lead [ID or Name]` — Sends automated listing invitation via Mailcow SMTP.
+* `/email_lead [ID or Name]` — Sends automated listing invitation via Mox SMTP.
 * `/telegram_lead [ID or Name]` — Creates direct Telegram contact link.
 
 ### 🎙️ Free Open-Source Voice Reader (Voice Notes & Speech Understanding):
@@ -108,10 +108,10 @@ You can control everything directly from your phone in Telegram:
 | **`/recycle_bin`** | `/recycle_bin` | Shows recently deleted ads. |
 | **`/restore_ad`** | `/restore_ad ad-agent-12345` | Restores an ad from the Recycle Bin back to live status. |
 | **`/list_ads`** | `/list_ads Durban` | Searches and lists live ads with their IDs. |
-| **`/send_email`** | `/send_email client@domain.com \| Quote \| Here is your invoice` | Sends an email via SMTP. |
-| **`/check_inbox`**| `/check_inbox` | Checks incoming emails via IMAP. |
-| **`/create_email`**| `/create_email info StrongPassword searchbiz.co.za` | DirectAdmin API: provisions new email mailbox on your VPS. |
-| **`/status`** | `/status` | Tests connections to SearchBiz, Ollama, SMTP, and IMAP. |
+| **`/send_email`** | `/send_email client@domain.com \| Quote \| Here is your invoice` | Sends an email via Mox SMTP. |
+| **`/check_inbox`**| `/check_inbox` | Checks incoming emails via Mox IMAP. |
+| **`/mox_settings`**| `/mox_settings` | Displays Mox SMTP/IMAP/Webmail connection details. |
+| **`/status`** | `/status` | Tests connections to SearchBiz, Ollama, Mox SMTP, and IMAP. |
 
 ### Natural Language AI Commands
 You can also chat normally without slashes:
@@ -121,33 +121,17 @@ You can also chat normally without slashes:
 
 ---
 
-## 3. Email System Options on Your VPS
+## 3. Mox Mail Server Configuration on Your VPS
 
-You asked about setting up an email system so the AI can **send and receive emails** and create mailboxes (like DirectAdmin). Here are the 2 best options:
+SearchBiz is configured to use **Mox** (lightweight all-in-one Go mail server) for sending/receiving `@searchbiz.co.za` emails:
 
-### Option A: DirectAdmin Email Hosting (Recommended if DirectAdmin is already on your VPS)
-DirectAdmin comes with:
-- **Exim**: High-performance Mail Transfer Agent for sending (SMTP ports 465/587).
-- **Dovecot**: IMAP/POP3 server for receiving and reading emails (IMAP port 993).
-- **Roundcube Webmail**: Web interface to access emails at `https://your-vps:2222/roundcube`.
-- **API Automation**: Hermes uses DirectAdmin's `CMD_API_POP` to create new `@searchbiz.co.za` email accounts on the fly when you ask!
-
-**DNS Requirements for DirectAdmin Mail:**
-Set these DNS records on your domain registrar (e.g., for `searchbiz.co.za`):
-1. **MX Record:** `searchbiz.co.za` -> Priority 10 -> `mail.searchbiz.co.za`
-2. **A Record:** `mail.searchbiz.co.za` -> Your VPS IP address
-3. **SPF Record (TXT):** `"v=spf1 mx a ~all"`
-4. **DKIM:** Generated in DirectAdmin -> E-Mail Accounts -> DKIM.
-
-### Option B: Free Lightweight Open-Source Mail Server: Stalwart Mail
-If you do NOT have DirectAdmin and want a 100% free open-source mail server on your VPS:
-- **Stalwart Mail Server** is written in Rust.
-- It uses only **~50MB of RAM** (crucial because Ollama already uses 2.2GB).
-- Single binary that supports SMTP, IMAP, and JMAP with built-in DKIM, DMARC, and SPF.
-- Install with 1 command:
-  ```bash
-  curl --proto '=https' --tlsv1.2 -sSf https://get.stalwart.io | sh
-  ```
+- **SMTP Outgoing:** `mail.searchbiz.co.za` (or `127.0.0.1` on host / `host.docker.internal` from Docker)
+  - Port `465` (SMTPS SSL/TLS) or Port `587` (SMTP Submission STARTTLS)
+- **IMAP Incoming:** `mail.searchbiz.co.za` (or `127.0.0.1`), Port `993` (IMAPS SSL/TLS)
+- **Webmail:** `https://mail.searchbiz.co.za/webmail/`
+- **Mox Admin UI:** `https://mail.searchbiz.co.za/admin/`
+- **Automatic DNS & Auth:** Mox automatically manages DKIM keys, SPF/DMARC checks, MTA-STS, and Let's Encrypt TLS certificates.
+- **Removing Heavy Mailcow Containers:** Run `sudo ./remove_mailcow.sh` (or `sudo ./remove_mailcow.sh --purge` to also delete Mailcow Docker images/volumes) to reclaim RAM on your VPS.
 
 ---
 

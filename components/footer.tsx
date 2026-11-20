@@ -20,8 +20,10 @@ export function Footer({ onShowLegal }: { onShowLegal?: () => void }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
   const [totalAdsCount, setTotalAdsCount] = useState<number>(0);
+  const [currentYear, setCurrentYear] = useState<number>(2026);
 
   useEffect(() => {
+    setCurrentYear(new Date().getFullYear());
     if (typeof window !== "undefined") {
       const checkMessages = () => {
         const stored = safeLocalStorage.getItem("searchbiz_messages_v1");
@@ -204,7 +206,7 @@ export function Footer({ onShowLegal }: { onShowLegal?: () => void }) {
                   <span>Home Directory</span>
                 </span>
                 <span className="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-200 border border-emerald-400/30">
-                  {totalAdsCount.toLocaleString()} Ads
+                  {totalAdsCount.toLocaleString('en-US')} Ads
                 </span>
               </Link>
 
@@ -362,7 +364,7 @@ export function Footer({ onShowLegal }: { onShowLegal?: () => void }) {
                       ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                       : "bg-slate-800/90 text-slate-400 border-slate-700/80"
                   }`}>
-                    {count.toLocaleString()} Ads
+                    {count.toLocaleString('en-US')} Ads
                   </span>
                 </Link>
               );
@@ -373,7 +375,7 @@ export function Footer({ onShowLegal }: { onShowLegal?: () => void }) {
         {/* BOTTOM LEGAL BAR: TERMS, PRIVACY POLICY, DISCLAIMER ALL PLACED NEXT TO EACH OTHER */}
         <div className="pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-400">
           <div className="font-mono text-slate-400 text-center md:text-left">
-            &copy; {new Date().getFullYear()} SearchBiz.co.za. All Rights Reserved. Built for South African Business Growth.
+            &copy; {currentYear} SearchBiz.co.za. All Rights Reserved. Built for South African Business Growth.
           </div>
           
           <div className="flex flex-wrap items-center justify-center gap-2 md:gap-4 bg-slate-900/80 px-4 py-2 rounded-xl border border-slate-800">

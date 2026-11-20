@@ -309,7 +309,7 @@ export default function QAPage() {
           </div>
           <div className="flex justify-start md:justify-end relative z-10">
             <a
-              href="mailto:mailsearchbiz@gmail.com"
+              href="mailto:support@searchbiz.co.za"
               className="bg-white text-emerald-900 border hover:bg-emerald-50 border-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider text-center transition w-full md:w-auto"
             >
               Contact Support

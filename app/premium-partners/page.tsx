@@ -105,8 +105,8 @@ export default function PremiumPartnersPage() {
     const deletedIds = JSON.parse(localStorage.getItem("searchbiz_deleted_partners") || "[]");
     const customAdded = JSON.parse(localStorage.getItem("searchbiz_custom_partners") || "[]");
 
-    // 1. Fetch official users list from local server
-    fetch("/api/admin/users")
+    // 1. Fetch official premium partners from public-safe endpoint
+    fetch("/api/premium/partners")
       .then(res => res.json())
       .then(data => {
         if (data && Array.isArray(data.users)) {

@@ -150,6 +150,9 @@ export default function AdminDashboard() {
 
   // Dynamic State for Management
   const [users, setUsers] = useState<any[]>([]);
+  const [twoFaRequests, setTwoFaRequests] = useState<any[]>([]);
+  const [adminAuthWarning, setAdminAuthWarning] = useState<string | null>(null);
+  const [twoFaActionFeedback, setTwoFaActionFeedback] = useState<string | null>(null);
   const [ads, setAds] = useState(MOCK_ADS);
   const [selectedAd, setSelectedAd] = useState<any>(null);
   const [userSearch, setUserSearch] = useState("");
@@ -584,19 +587,37 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    fetch('/api/admin/users').then(res => res.json()).then(data => {
-      Promise.resolve().then(() => {
+    fetch('/api/admin/users', { cache: 'no-store' })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401 || res.status === 403) {
+          setAdminAuthWarning(
+            data.error ||
+              'Admin server session required. Please log out and sign back in with 2FA to manage users or reset 2FA.'
+          );
+          setUsers([]);
+          return;
+        }
+        setAdminAuthWarning(null);
         if (data.users && data.users.length > 0) {
           setUsers(data.users);
         } else {
-          setUsers(MOCK_USERS);
+          setUsers([]);
         }
-      });
-    }).catch(() => {
-      Promise.resolve().then(() => {
+      })
+      .catch(() => {
         setUsers(MOCK_USERS);
       });
-    });
+
+    fetch('/api/admin/2fa-requests', { cache: 'no-store' })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        if (Array.isArray(data.requests)) {
+          setTwoFaRequests(data.requests);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const loadClaimRequests = async () => {
@@ -842,13 +863,104 @@ export default function AdminDashboard() {
     }
   };
 
-  const blockUser = (id: string) => {
+  const handleResolveTwoFaRequest = async (
+    requestId: string,
+    action: 'approve' | 'dismiss',
+    regenerateSecret = true
+  ) => {
+    try {
+      const res = await fetch('/api/admin/2fa-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId, action, regenerateSecret }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTwoFaActionFeedback(data.error || 'Failed to process 2FA reset request.');
+        return;
+      }
+      if (Array.isArray(data.requests)) {
+        setTwoFaRequests(data.requests);
+      }
+      if (action === 'approve' && data.request?.email) {
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.email?.toLowerCase() === data.request.email.toLowerCase()
+              ? { ...u, hasSetup2FA: false }
+              : u
+          )
+        );
+        setTwoFaActionFeedback(
+          `Approved 2FA reset for ${data.request.email}. They can re-enroll on their next login.`
+        );
+      } else {
+        setTwoFaActionFeedback('2FA reset request dismissed.');
+      }
+    } catch {
+      setTwoFaActionFeedback('Error communicating with server while processing 2FA request.');
+    }
+  };
+
+  const handleResetUser2FA = async (userId: string, userEmail: string, regenerateSecret = false) => {
+    const hasPendingReq = twoFaRequests.some(
+      (r) => r.status === 'PENDING' && r.email?.toLowerCase() === userEmail?.toLowerCase()
+    );
+    const requestNotice = hasPendingReq
+      ? 'This user has a pending 2FA reset request.\n\n'
+      : 'Note: This user has NOT submitted an in-app 2FA reset request. Only reset 2FA if they explicitly requested it.\n\n';
+    const label = regenerateSecret
+      ? `${requestNotice}Reset 2FA AND generate a brand new Google Authenticator key for ${userEmail}? Their old authenticator entry will stop working and they will see the new key on next login.`
+      : `${requestNotice}Reset Google Authenticator 2FA setup status for ${userEmail}? They will be shown the setup key again on their next login.`;
+    if (!confirm(label)) return;
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: userId, reset2FA: true, regenerateSecret }),
+      });
+      if (res.ok) {
+        setUsers(users.map(u => u.id === userId ? { ...u, hasSetup2FA: false } : u));
+        setTwoFaRequests((prev) =>
+          prev.map((r) =>
+            r.status === 'PENDING' && r.email?.toLowerCase() === userEmail?.toLowerCase()
+              ? { ...r, status: 'APPROVED', resolvedAt: new Date().toISOString() }
+              : r
+          )
+        );
+        setTwoFaActionFeedback(
+          `2FA reset for ${userEmail}. They will see the Authenticator setup key once on their next login.`
+        );
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setTwoFaActionFeedback("Failed to reset 2FA: " + (data.error || "Unknown error"));
+      }
+    } catch {
+      setTwoFaActionFeedback("Error communicating with server while resetting 2FA.");
+    }
+  };
+
+  const blockUser = async (id: string) => {
     const targetUser = users.find(u => u.id === id);
     if (targetUser && targetUser.email?.toLowerCase() === user?.email?.toLowerCase()) {
       alert("Access Denied: You cannot block your own active administrator account.");
       return;
     }
-    console.log("User account has been locked. Access revoked until further manual override.");
+    const nextLocked = !targetUser?.isLocked;
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, isLocked: nextLocked }),
+      });
+      if (res.ok) {
+        setUsers(users.map(u => u.id === id ? { ...u, isLocked: nextLocked, failedAttempts: nextLocked ? u.failedAttempts : 0 } : u));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert("Failed to update user lock state: " + (data.error || "Unknown error"));
+      }
+    } catch {
+      alert("Error communicating with server.");
+    }
   };
 
   const handleUpdateUserPlan = async (userId: string, newPlan: string) => {
@@ -3976,11 +4088,93 @@ export default function AdminDashboard() {
             </div>
           </div>
 
+          {adminAuthWarning && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-5 flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs sm:text-sm font-semibold leading-relaxed">
+                {adminAuthWarning}
+              </div>
+            </div>
+          )}
+
+          {twoFaActionFeedback && (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl p-4 flex items-center justify-between gap-3">
+              <span className="text-xs sm:text-sm font-semibold">{twoFaActionFeedback}</span>
+              <button
+                type="button"
+                onClick={() => setTwoFaActionFeedback(null)}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-900"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {twoFaRequests.some((r) => r.status === 'PENDING') && (
+            <div className="bg-white rounded-3xl border-2 border-amber-300 shadow-sm p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <KeyRound className="w-5 h-5 text-amber-600" />
+                  <h3 className="font-bold text-base text-slate-900">
+                    Pending 2FA Reset Requests ({twoFaRequests.filter((r) => r.status === 'PENDING').length})
+                  </h3>
+                </div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                  Admin Approval Required
+                </span>
+              </div>
+              <div className="space-y-3">
+                {twoFaRequests
+                  .filter((r) => r.status === 'PENDING')
+                  .map((reqItem) => (
+                    <div
+                      key={reqItem.id}
+                      className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-amber-50/50 border border-amber-200/80 rounded-2xl p-4"
+                    >
+                      <div className="space-y-1">
+                        <div className="text-sm font-bold text-slate-900">
+                          {reqItem.email}
+                          {reqItem.fullName ? ` — ${reqItem.fullName}` : ''}
+                        </div>
+                        <div className="text-xs text-slate-600">{reqItem.reason}</div>
+                        <div className="text-[10px] text-slate-400 font-medium">
+                          Requested {new Date(reqItem.requestedAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleResolveTwoFaRequest(reqItem.id, 'approve', true)}
+                          className="text-[11px] font-bold uppercase tracking-wider bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition"
+                        >
+                          Approve &amp; New 2FA Key
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleResolveTwoFaRequest(reqItem.id, 'approve', false)}
+                          className="text-[11px] font-bold uppercase tracking-wider bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 transition"
+                        >
+                          Approve &amp; Re-show Key
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleResolveTwoFaRequest(reqItem.id, 'dismiss', false)}
+                          className="text-[11px] font-bold uppercase tracking-wider bg-slate-200 text-slate-700 px-3 py-2 rounded-lg hover:bg-slate-300 transition"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden relative w-full max-w-full">
             <div className="px-8 py-6 border-b border-slate-100 bg-white flex flex-col md:flex-row md:items-center justify-between relative z-10 gap-4">
               <div>
                 <h2 className="font-bold text-xl text-slate-900 font-display">User Intelligence Registry</h2>
-                <p className="text-sm text-slate-500 mt-1">Manage global access, block bad actors, and reset credentials.</p>
+                <p className="text-sm text-slate-500 mt-1">Manage global access, block bad actors, and approve admin-only 2FA reset requests.</p>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="relative">
@@ -4075,23 +4269,57 @@ export default function AdminDashboard() {
                         </div>
                         {u.hasSetup2FA ? (
                           <div className="text-[9px] text-emerald-600 font-extrabold mt-1.5 inline-flex items-center bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 uppercase tracking-widest">
-                            ● 2FA Active (Completed)
+                            ● 2FA Active (Remembered)
                           </div>
                         ) : (
                           <div className="text-[9px] text-amber-600 font-extrabold mt-1.5 inline-flex items-center bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-widest">
-                            ○ Pending 2FA (Incomplete)
+                            ○ Pending 2FA (Setup)
+                          </div>
+                        )}
+                        {twoFaRequests.some(
+                          (r) => r.status === 'PENDING' && r.email?.toLowerCase() === u.email?.toLowerCase()
+                        ) && (
+                          <div className="text-[9px] text-rose-700 font-extrabold mt-1 ml-1 inline-flex items-center bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 uppercase tracking-widest">
+                            Reset Requested
                           </div>
                         )}
                       </td>
                       <td className="px-8 py-5 whitespace-nowrap text-right">
                         {user?.email?.toLowerCase() === u.email?.toLowerCase() ? (
-                          <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg select-none inline-block">
-                            Protected Admin (You)
-                          </span>
+                          <div className="flex items-center justify-end space-x-2">
+                            <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg select-none inline-block">
+                              Protected Admin (You)
+                            </span>
+                            <button
+                              onClick={() => handleResetUser2FA(u.id, u.email, false)}
+                              className="text-[10px] font-bold uppercase tracking-widest bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition"
+                              title="Show Authenticator setup key again on next login"
+                            >
+                              Reset 2FA
+                            </button>
+                          </div>
                         ) : (
                           <div className="flex items-center justify-end space-x-2">
-                             <button onClick={() => console.log("Verification code sent to user email.")} className="text-[10px] font-bold uppercase tracking-widest bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200 transition">Reset</button>
-                             <button onClick={() => blockUser(u.id)} className="text-[10px] font-bold uppercase tracking-widest bg-amber-50 text-amber-600 border border-amber-100 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition">Block</button>
+                             <button
+                               onClick={() => handleResetUser2FA(u.id, u.email, false)}
+                               className="text-[10px] font-bold uppercase tracking-widest bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-200 transition"
+                               title="Allow user to re-view their 2FA setup key on next login"
+                             >
+                               Reset 2FA
+                             </button>
+                             <button
+                               onClick={() => handleResetUser2FA(u.id, u.email, true)}
+                               className="text-[10px] font-bold uppercase tracking-widest bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition"
+                               title="Rotate to a brand new 2FA secret key"
+                             >
+                               New 2FA Key
+                             </button>
+                             <button
+                               onClick={() => blockUser(u.id)}
+                               className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition ${u.isLocked ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-100'}`}
+                             >
+                               {u.isLocked ? 'Unblock' : 'Block'}
+                             </button>
                              <button onClick={() => removeUser(u.id)} className="text-[10px] font-bold uppercase tracking-widest bg-rose-50 text-rose-600 border border-rose-100 px-3 py-1.5 rounded-lg hover:bg-rose-100 transition">Delete</button>
                           </div>
                         )}

@@ -25,17 +25,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
     }
 
-    const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
-    const smtpPort = Number(process.env.SMTP_PORT) || 465;
-    const smtpUser = (process.env.SMTP_USER || '').trim();
-    const fromEmail = process.env.FROM_EMAIL || smtpUser || 'mail@searchbiz.co.za';
+    const sysConfig = getSmtpConfig();
 
     return NextResponse.json({
       status: 'ready',
-      configuredHost: smtpHost,
-      configuredPort: smtpPort,
-      configuredUser: smtpUser ? `${smtpUser.slice(0, 3)}***@${smtpUser.split('@')[1] || 'domain.com'}` : 'Not set',
-      fromEmail: fromEmail,
+      configuredHost: sysConfig.host,
+      configuredPort: sysConfig.port,
+      configuredUser: sysConfig.user ? `${sysConfig.user.slice(0, 3)}***@${sysConfig.user.split('@')[1] || 'domain.com'}` : 'Not set',
+      fromEmail: sysConfig.fromEmail,
       supportedActions: ['send', 'verify']
     });
   } catch (error: any) {
@@ -63,7 +60,7 @@ export async function POST(req: NextRequest) {
       from, 
       replyTo,
       attachments,
-      // Optional custom SMTP override (useful if connecting directly to DirectAdmin/VPS mail)
+      // Optional custom SMTP override (e.g. connecting directly to Mox / VPS mail)
       smtpConfig 
     } = body;
 

@@ -36,24 +36,29 @@ async function createVerificationSystemMessage(normalizedEmail: string, fullName
     
     // 4. Also sync to database if active
     try {
-      const { db: dClient, initDb } = require('@/lib/db');
-      initDb();
-      if (dClient) {
-        const { storage: storageTable } = require('@/lib/db/schema');
-        const { eq } = require('drizzle-orm');
-        const record = await dClient.select().from(storageTable).where(eq(storageTable.key, 'main')).limit(1);
-        if (record && record.length > 0) {
-          const dbParsed = JSON.parse(record[0].data);
-          if (dbParsed) {
-            if (!dbParsed.messages) dbParsed.messages = [];
-            dbParsed.messages.push(newMessage);
-            dbParsed.updatedAt = Date.now();
-            await dClient.update(storageTable).set({ data: JSON.stringify(dbParsed, null, 2) }).where(eq(storageTable.key, 'main'));
+      const { db: dClient, initDb, dbReadyPromise, isDbCurrentlyOffline, withDbTimeout } = require('@/lib/db');
+      if (!isDbCurrentlyOffline()) {
+        initDb();
+        if (dbReadyPromise) {
+          await withDbTimeout(dbReadyPromise, 300).catch(() => {});
+        }
+        if (!isDbCurrentlyOffline() && dClient) {
+          const { storage: storageTable } = require('@/lib/db/schema');
+          const { eq } = require('drizzle-orm');
+          const record = await withDbTimeout(dClient.select().from(storageTable).where(eq(storageTable.key, 'main')).limit(1), 600);
+          if (record && record.length > 0) {
+            const dbParsed = JSON.parse(record[0].data);
+            if (dbParsed) {
+              if (!dbParsed.messages) dbParsed.messages = [];
+              dbParsed.messages.push(newMessage);
+              dbParsed.updatedAt = Date.now();
+              await withDbTimeout(dClient.update(storageTable).set({ data: JSON.stringify(dbParsed, null, 2) }).where(eq(storageTable.key, 'main')), 800);
+            }
           }
         }
       }
-    } catch (dbErr) {
-      console.warn("Could not sync message to pg database, local file saved successfully:", dbErr);
+    } catch {
+      // Local file already saved
     }
     
   } catch (err) {
@@ -297,7 +302,7 @@ export async function POST(req: Request) {
         `;
 
         sendEmail({
-          to: "mailsearchbiz@gmail.com",
+          to: process.env.ADMIN_EMAIL || "admin@searchbiz.co.za",
           subject: `🚨 [PREMIUM SIGNUP SPECIAL] New Verification Submission (${plan}) from ${normalizedEmail}`,
           html: mailHtml,
         }).catch((err: any) => {

@@ -20,9 +20,14 @@ export default function LoginPage() {
   const [verifyingEmail, setVerifyingEmail] = useState(false);
   const [resendingEmail, setResendingEmail] = useState(false);
   const [emailResendSuccess, setEmailResendSuccess] = useState("");
-  const [secretKey, setSecretKey] = useState("BS24KPGQY567ABCD");
+  const [secretKey, setSecretKey] = useState("");
   const [hasSetup2FA, setHasSetup2FA] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showResetRequestForm, setShowResetRequestForm] = useState(false);
+  const [resetRequestReason, setResetRequestReason] = useState("");
+  const [resetRequestSending, setResetRequestSending] = useState(false);
+  const [resetRequestSuccess, setResetRequestSuccess] = useState("");
+  const [resetRequestError, setResetRequestError] = useState("");
   
   // Premium Tier Registration States
   const [selectedPlan, setSelectedPlan] = useState<string>("FREE");
@@ -184,10 +189,19 @@ export default function LoginPage() {
         const data = await res.json();
 
         if (res.ok) {
-          // Load user 2FA state
-          setSecretKey(data.user.secretKey || "");
-          setHasSetup2FA(data.user.hasSetup2FA || false);
-          
+          // Load user 2FA state strictly from server: never show secretKey if already enrolled
+          const enrolled2FA = Boolean(data.user.hasSetup2FA);
+          if (data.user.email) {
+            setEmail(data.user.email);
+          }
+          setHasSetup2FA(enrolled2FA);
+          setSecretKey(enrolled2FA ? "" : (data.user.secretKey || ""));
+          setTwoFaCode("");
+          setEmailOtp("");
+          setShowResetRequestForm(false);
+          setResetRequestSuccess("");
+          setResetRequestError("");
+
           if (data.requiresEmailVerify) {
             setStep("EMAIL_VERIFY");
           } else {
@@ -223,29 +237,23 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (res.ok) {
-        // Complete the authentication session by retrieving session user profile
-        const loginCheckRes = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: normalizedEmail, password }),
-        });
-        const loginCheckData = await loginCheckRes.json();
-
-        if (loginCheckRes.ok) {
+        if (data.user) {
+          setHasSetup2FA(true);
+          setSecretKey("");
           login(
-            loginCheckData.user.email, 
-            loginCheckData.user.role, 
-            loginCheckData.user.plan,
-            loginCheckData.user.id,
-            loginCheckData.user.fullName,
-            loginCheckData.user.address,
-            loginCheckData.user.businessName,
-            loginCheckData.user.businessCategory,
-            loginCheckData.user.phone
+            data.user.email,
+            data.user.role,
+            data.user.plan,
+            data.user.id,
+            data.user.fullName,
+            data.user.address,
+            data.user.businessName,
+            data.user.businessCategory,
+            data.user.phone
           );
           router.push("/dashboard");
         } else {
-          setErrorMsg(loginCheckData.error || "Failed to finalize session.");
+          setErrorMsg("Failed to finalize session.");
         }
       } else {
         setErrorMsg(data.error || "Failed to complete verification.");
@@ -278,7 +286,10 @@ export default function LoginPage() {
       const data = await res.json();
       
       if (res.ok) {
-        // Verification success! Transition to Google 2FA setup.
+        if (data.email) {
+          setEmail(data.email);
+        }
+        // Verification success! Transition to Google 2FA step.
         setStep("2FA");
         // Scroll to top of page as requested
         if (typeof window !== "undefined") {
@@ -291,6 +302,37 @@ export default function LoginPage() {
       setErrorMsg("An error occurred during verification. Please try again.");
     } finally {
       setVerifyingEmail(false);
+    }
+  };
+
+  const handleRequest2faReset = async () => {
+    setResetRequestError("");
+    setResetRequestSuccess("");
+    setResetRequestSending(true);
+    try {
+      const res = await fetch("/api/auth/request-2fa-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          reason: resetRequestReason.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResetRequestSuccess(
+          data.message ||
+            "Your 2FA reset request has been sent to the SearchBiz Administrator."
+        );
+        setShowResetRequestForm(false);
+        setResetRequestReason("");
+      } else {
+        setResetRequestError(data.error || "Failed to send 2FA reset request.");
+      }
+    } catch {
+      setResetRequestError("Network error while sending 2FA reset request.");
+    } finally {
+      setResetRequestSending(false);
     }
   };
 
@@ -1061,7 +1103,14 @@ export default function LoginPage() {
                   </button>
                   <button 
                     type="button" 
-                    onClick={() => setStep("LOGIN")} 
+                    onClick={() => {
+                      setStep("LOGIN");
+                      setSecretKey("");
+                      setHasSetup2FA(false);
+                      setTwoFaCode("");
+                      setEmailOtp("");
+                      setErrorMsg("");
+                    }} 
                     className="block w-full text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors"
                   >
                     {isRegister ? "Back to Registration" : "Back to Sign In"}
@@ -1093,7 +1142,7 @@ export default function LoginPage() {
                 <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 mb-3">
                   2-Step Verification
                 </h2>
-                {!hasSetup2FA ? (
+                {!hasSetup2FA && secretKey ? (
                   <div className="bg-emerald-50 p-4 rounded-2xl mb-6 border border-emerald-100">
                      <div className="flex items-center gap-2 text-emerald-700 font-bold text-xs uppercase tracking-widest mb-2 justify-center">
                         <Key className="w-4 h-4" /> Authenticator Secret Key
@@ -1138,10 +1187,10 @@ export default function LoginPage() {
                 ) : (
                   <div className="bg-slate-50 p-4 rounded-2xl mb-6 border border-slate-200/60 text-center">
                     <p className="text-xs font-semibold text-slate-700">
-                      🔐 Authenticator setup is already active for <span className="text-emerald-600 font-extrabold">{email}</span>.
+                      Google Authenticator is already linked for <span className="text-emerald-600 font-extrabold">{email}</span>.
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-1 max-w-[280px] mx-auto font-medium">
-                      Enter the corresponding 6-digit code from your Google Authenticator app choice.
+                    <p className="text-[11px] text-slate-500 mt-1.5 max-w-[300px] mx-auto font-medium">
+                      Your setup key is permanently hidden for security. Enter the 6-digit code from your Google Authenticator app.
                     </p>
                   </div>
                 )}
@@ -1184,8 +1233,79 @@ export default function LoginPage() {
                   </button>
                 </div>
                 
-                <div className="text-center">
-                  <button type="button" onClick={() => setStep("LOGIN")} className="text-sm font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+                <div className="text-center space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep("LOGIN");
+                      setSecretKey("");
+                      setHasSetup2FA(false);
+                      setTwoFaCode("");
+                      setEmailOtp("");
+                      setErrorMsg("");
+                      setShowResetRequestForm(false);
+                    }}
+                    className="text-sm font-semibold text-slate-500 hover:text-slate-700"
+                  >
+                    Cancel
+                  </button>
+
+                  {hasSetup2FA && (
+                    <div className="pt-2">
+                      {resetRequestSuccess ? (
+                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium rounded-xl p-3 text-left">
+                          {resetRequestSuccess}
+                        </div>
+                      ) : !showResetRequestForm ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowResetRequestForm(true);
+                            setResetRequestError("");
+                          }}
+                          className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline transition-colors"
+                        >
+                          Lost your Authenticator device? Request Admin 2FA Reset
+                        </button>
+                      ) : (
+                        <div className="mt-3 bg-slate-50 border border-slate-200 rounded-xl p-4 text-left space-y-3">
+                          <p className="text-xs font-bold text-slate-800">
+                            Request Admin 2FA Reset
+                          </p>
+                          <p className="text-[11px] text-slate-600 leading-relaxed">
+                            Only the SearchBiz Administrator can reset your Google Authenticator setup upon request.
+                          </p>
+                          <textarea
+                            rows={2}
+                            placeholder="Optional reason (e.g., got a new phone or reinstalled Google Authenticator)"
+                            value={resetRequestReason}
+                            onChange={(e) => setResetRequestReason(e.target.value)}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                          />
+                          {resetRequestError && (
+                            <p className="text-[11px] font-semibold text-rose-600">{resetRequestError}</p>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={resetRequestSending}
+                              onClick={handleRequest2faReset}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {resetRequestSending ? "Sending Request..." : "Submit Request to Admin"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowResetRequestForm(false)}
+                              className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-300"
+                            >
+                              Close
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Secure Anti-Hack Reminder */}

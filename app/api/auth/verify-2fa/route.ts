@@ -1,6 +1,58 @@
 import { NextResponse } from 'next/server';
 import { getUserByEmail, saveUser } from '@/lib/auth-service';
 import { TOTP, NobleCryptoPlugin, ScureBase32Plugin, createGuardrails } from 'otplib';
+import {
+  createSessionToken,
+  EMAIL_VERIFIED_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+} from '@/lib/session';
+
+function buildVerifiedResponse(user: any, message: string) {
+  const safeUserPayload = {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    plan: user.plan,
+    hasSetup2FA: true,
+    fullName: user.fullName || '',
+    address: user.address || '',
+    businessName: user.businessName || '',
+    businessCategory: user.businessCategory || '',
+    phone: user.phone || '',
+    idNumber: user.idNumber || '',
+    memberId: user.memberId || '',
+  };
+
+  const res = NextResponse.json({
+    success: true,
+    message,
+    user: safeUserPayload,
+  });
+
+  const sessionToken = createSessionToken({
+    id: user.id,
+    email: user.email,
+    role: user.role,
+  });
+
+  res.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60,
+  });
+
+  res.cookies.set(EMAIL_VERIFIED_COOKIE_NAME, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 0,
+  });
+
+  return res;
+}
 
 export async function POST(req: Request) {
   try {
@@ -24,15 +76,12 @@ export async function POST(req: Request) {
 
     // Bypass for the admin account to ensure it isn't locked out during tests
     if ((normalizedEmail === 'nicholauscostochetty@gmail.com' || normalizedEmail === 'admin') && token === '391796') {
-       if (!user.hasSetup2FA) {
-         user.hasSetup2FA = true;
-         await saveUser(user);
-       }
-       
-       return NextResponse.json({
-         success: true,
-         message: '2-Step Verification verified successfully (Admin Bypass).'
-       });
+      if (!user.hasSetup2FA) {
+        user.hasSetup2FA = true;
+        await saveUser(user);
+      }
+
+      return buildVerifiedResponse(user, '2-Step Verification verified successfully (Admin Bypass).');
     }
 
     // Verify the TOTP token using otplib with properly configured plugins and guardrails
@@ -49,21 +98,18 @@ export async function POST(req: Request) {
       epochTolerance: 120 // Allow up to 2 minutes of clock skew in either direction to prevent drift failures
     });
     const isValid = result.valid;
-    
+
     if (!isValid) {
       return NextResponse.json({ error: 'Invalid verification code. Please try again.' }, { status: 401 });
     }
 
-    // Toggle 2FA to setup completed!
+    // Permanently remember that this user has completed Google Authenticator setup
     if (!user.hasSetup2FA) {
       user.hasSetup2FA = true;
       await saveUser(user);
     }
 
-    return NextResponse.json({
-      success: true,
-      message: '2-Step Verification verified successfully.'
-    });
+    return buildVerifiedResponse(user, '2-Step Verification verified successfully.');
   } catch (error: any) {
     console.error('Server 2FA Verification Activation Error:', error);
     return NextResponse.json({ error: 'An unexpected internal server error occurred.' }, { status: 500 });

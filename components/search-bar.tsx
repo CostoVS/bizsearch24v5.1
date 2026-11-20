@@ -781,7 +781,7 @@ function SearchBarForm() {
               )}
 
               <div className="pt-1 pb-0.5 px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                {selectedTown ? `Suburbs in ${selectedTown} (${rawSuburbsList.length})` : `Indexed Suburbs & Postal Codes (${rawSuburbsList.length.toLocaleString()})`}
+                {selectedTown ? `Suburbs in ${selectedTown} (${rawSuburbsList.length})` : `Indexed Suburbs & Postal Codes (${rawSuburbsList.length.toLocaleString('en-US')})`}
               </div>
 
               {filteredSuburbs.map((subItem, idx) => (
@@ -958,7 +958,7 @@ function SearchBarForm() {
                       ? 'bg-white/25 text-white border-white/30'
                       : 'bg-emerald-100 text-emerald-800 border-emerald-200'
                   }`}>
-                    {totalAdsCount.toLocaleString()} Ads
+                    {totalAdsCount.toLocaleString('en-US')} Ads
                   </span>
                   {!category && <Check className="w-4 h-4 text-white shrink-0" />}
                 </div>
@@ -1010,7 +1010,7 @@ function SearchBarForm() {
                                 ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
                                 : 'bg-white text-slate-500 border-slate-200'
                           }`}>
-                            {groupCount.toLocaleString()} Ads
+                            {groupCount.toLocaleString('en-US')} Ads
                           </span>
                           {isGroupSelected && <Check className="w-4 h-4 text-white shrink-0" />}
                         </div>
@@ -1062,7 +1062,7 @@ function SearchBarForm() {
                                         ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
                                         : 'bg-white text-slate-400 border-slate-200/80'
                                   }`}>
-                                    {subCount.toLocaleString()} Ads
+                                    {subCount.toLocaleString('en-US')} Ads
                                   </span>
                                   {isSubSelected && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
                                 </div>
@@ -1098,7 +1098,7 @@ function SearchBarForm() {
                         ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
                         : 'bg-white text-slate-500 border-slate-200'
                   }`}>
-                    {getCountForCategory(categoryCounts, 'Other').toLocaleString()} Ads
+                    {getCountForCategory(categoryCounts, 'Other').toLocaleString('en-US')} Ads
                   </span>
                   {category === 'Other' && <Check className="w-4 h-4 text-white shrink-0" />}
                 </div>

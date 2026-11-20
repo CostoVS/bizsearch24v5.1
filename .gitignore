@@ -22,7 +22,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
+# local env files (never push secrets or overwrite VPS .env)
+.env
 .env*.local
 
 # vercel
@@ -32,6 +33,12 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# persistent database backups (never overwrite on git pull/reset)
+# runtime data & persistent user/auth stores (never overwrite on git pull/reset)
+.data/
+data/users-db.json
+data/2fa-reset-requests.json
+*.db
+*.sqlite
+*.sqlite3
 *backup_db.json
 searchbiz_db_backup.json

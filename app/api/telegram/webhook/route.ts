@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createBotAd, deleteBotAd, searchBotAds, restoreBotAd, restoreAllBotAds, getBotTrashAds } from '@/lib/bot-ad-service';
-import nodemailer from 'nodemailer';
+import { sendEmail } from '@/lib/email-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -399,24 +399,14 @@ To undo this, send:
       }
 
       try {
-        const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
-        const smtpPort = Number(process.env.SMTP_PORT) || 465;
-        const smtpUser = (process.env.SMTP_USER || 'mailsearchbiz@gmail.com').trim();
-        const rawPass = process.env.SMTP_PASS || 'ygrv hhqi hdhi bxwt';
-
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpPort === 465,
-          auth: { user: smtpUser, pass: rawPass.replace(/\s+/g, '') }
-        });
-
-        await transporter.sendMail({
-          from: `"SearchBiz AI" <${smtpUser}>`,
+        const res = await sendEmail({
           to,
           subject,
-          text: bodyText
+          text: bodyText,
         });
+        if (!res.success) {
+          throw new Error(res.error || 'SMTP send failed');
+        }
 
         await sendTelegramMessage(chatId, `📧 <b>Email Sent!</b>\nTo: <code>${to}</code>\nSubject: <i>${subject}</i>`);
       } catch (e: any) {
@@ -601,24 +591,14 @@ https://searchbiz.co.za
 support@searchbiz.co.za`;
 
       try {
-        const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
-        const smtpPort = Number(process.env.SMTP_PORT) || 465;
-        const smtpUser = (process.env.SMTP_USER || 'mailsearchbiz@gmail.com').trim();
-        const rawPass = process.env.SMTP_PASS || 'ygrv hhqi hdhi bxwt';
-
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpPort === 465,
-          auth: { user: smtpUser, pass: rawPass.replace(/\s+/g, '') }
-        });
-
-        await transporter.sendMail({
-          from: `"SearchBiz AI" <${smtpUser}>`,
+        const res = await sendEmail({
           to: recipient,
           subject,
-          text: plainBody
+          text: plainBody,
         });
+        if (!res.success) {
+          throw new Error(res.error || 'SMTP send failed');
+        }
 
         await sendTelegramMessage(chatId, `📧 <b>Email Successfully Dispatched!</b>\n\n📬 <b>To:</b> <code>${recipient}</code>\n📝 <b>Subject:</b> <i>${subject}</i>\n\n✨ I have sent a full breakdown of <b>SearchBiz.co.za</b> and the <b>R199.00/month</b> Premium plan. Check your inbox!`);
         return NextResponse.json({ ok: true });

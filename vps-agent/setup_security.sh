@@ -30,15 +30,13 @@ ufw allow 22/tcp comment "SSH Remote Management"
 ufw allow 80/tcp comment "Nginx Web Server HTTP"
 ufw allow 443/tcp comment "Nginx Web Server HTTPS"
 ufw allow 3000/tcp comment "SearchBiz Next.js Applet"
-ufw allow 2222/tcp comment "DirectAdmin Control Panel"
 
-# Mailcow / VPS Mail Server Ports
-ufw allow 25/tcp comment "SMTP Mail Transfer"
-ufw allow 587/tcp comment "SMTP Submission"
-ufw allow 465/tcp comment "SMTPS Secure Submission"
-ufw allow 993/tcp comment "IMAP Secure"
-ufw allow 110/tcp comment "POP3"
-ufw allow 995/tcp comment "POP3 Secure"
+# Mox Mail Server Ports (SMTP MX, Submission, SMTPS, IMAP, IMAPS)
+ufw allow 25/tcp comment "Mox SMTP Mail Transfer"
+ufw allow 587/tcp comment "Mox SMTP Submission (STARTTLS)"
+ufw allow 465/tcp comment "Mox SMTPS Secure Submission"
+ufw allow 993/tcp comment "Mox IMAPS Secure"
+ufw allow 143/tcp comment "Mox IMAP (STARTTLS)"
 
 # Local AI Engine (Bind to localhost only, but protect port 11434)
 # Ollama runs on 127.0.0.1:11434 and does not need external exposure

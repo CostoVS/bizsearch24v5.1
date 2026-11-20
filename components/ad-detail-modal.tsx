@@ -1980,8 +1980,7 @@ Business Bank Statement:${claimBankStatement}
                       </div>
                     ) : (ad.isPremium || ad.isSponsor) ? (
                       <div className="mb-4">
-                        {typeof window !== "undefined" && (
-                          <>
+                        <>
                             {!isMessaging ? (
                               <button
                                 onClick={() => setIsMessaging(true)}
@@ -2021,10 +2020,7 @@ Business Bank Statement:${claimBankStatement}
                               </motion.div>
                             ) : (
                               <div className="space-y-3">
-                                {typeof window !== "undefined" &&
-                                  !localStorage.getItem(
-                                    "searchbiz_session",
-                                  ) && (
+                                {!user && (
                                     <>
                                       <div className="grid grid-cols-1 gap-3">
                                         <input
@@ -2085,25 +2081,19 @@ Business Bank Statement:${claimBankStatement}
 
                                 <textarea
                                   value={
-                                    typeof window !== "undefined" &&
-                                    !localStorage.getItem("searchbiz_session")
+                                    !user
                                       ? guestMessage
                                       : directMessageText
                                   }
                                   onChange={(e) => {
-                                    if (
-                                      !localStorage.getItem(
-                                        "searchbiz_session",
-                                      )
-                                    ) {
+                                    if (!user) {
                                       setGuestMessage(e.target.value);
                                     } else {
                                       setDirectMessageText(e.target.value);
                                     }
                                   }}
                                   placeholder={
-                                    typeof window !== "undefined" &&
-                                    !localStorage.getItem("searchbiz_session")
+                                    !user
                                       ? "What would you like to ask or request?"
                                       : `Write your message to ${ad.title}...`
                                   }
@@ -2126,10 +2116,7 @@ Business Bank Statement:${claimBankStatement}
                                     onClick={handleSendSecureMessage}
                                     disabled={
                                       submitting ||
-                                      (typeof window !== "undefined" &&
-                                      !localStorage.getItem(
-                                        "searchbiz_session",
-                                      )
+                                      (!user
                                         ? !guestName ||
                                           !guestPhone ||
                                           !guestEmail ||
@@ -2149,7 +2136,6 @@ Business Bank Statement:${claimBankStatement}
                           </motion.div>
                             )}
                           </>
-                        )}
                       </div>
                     ) : (
                       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">

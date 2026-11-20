@@ -212,7 +212,7 @@ export default function CategoriesClient() {
               </div>
               <div className="text-center px-3">
                 <div className="text-2xl sm:text-3xl font-black text-amber-400 font-display">
-                  {allAdsCount.toLocaleString()}
+                  {allAdsCount.toLocaleString('en-US')}
                 </div>
                 <div className="text-[10px] sm:text-xs text-slate-400 uppercase font-semibold tracking-wider">
                   Active Listings
@@ -266,7 +266,7 @@ export default function CategoriesClient() {
               </h2>
             </div>
             <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 self-start sm:self-auto">
-              {allAdsCount.toLocaleString()} Total Active Ads
+              {allAdsCount.toLocaleString('en-US')} Total Active Ads
             </span>
           </div>
 
@@ -294,7 +294,7 @@ export default function CategoriesClient() {
                         : "bg-white text-slate-500 border-slate-200"
                     }`}
                   >
-                    {sectorCount.toLocaleString()} Ads
+                    {sectorCount.toLocaleString('en-US')} Ads
                   </span>
                 </Link>
               );
@@ -457,7 +457,7 @@ export default function CategoriesClient() {
                               ? 'bg-amber-100 text-amber-800 border-amber-200'
                               : 'bg-slate-100 text-slate-600 border-slate-200'
                           }`}>
-                            {count.toLocaleString()} {count === 1 ? 'Ad' : 'Ads'}
+                            {count.toLocaleString('en-US')} {count === 1 ? 'Ad' : 'Ads'}
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 font-medium mt-1">
@@ -474,7 +474,7 @@ export default function CategoriesClient() {
                         className="inline-flex items-center gap-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl transition shadow-sm"
                         title={`Search all ${group.name} listings`}
                       >
-                        <span>Search All {group.id} ({count.toLocaleString()})</span>
+                        <span>Search All {group.id} ({count.toLocaleString('en-US')})</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </Link>
 
@@ -529,7 +529,7 @@ export default function CategoriesClient() {
                                       ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/80'
                                       : 'bg-slate-200/70 text-slate-500'
                                   }`}>
-                                    {subCount.toLocaleString()}
+                                    {subCount.toLocaleString('en-US')}
                                   </span>
                                   <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 transition-transform group-hover:translate-x-0.5" />
                                 </div>

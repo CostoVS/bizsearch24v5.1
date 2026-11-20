@@ -14,7 +14,7 @@ Capabilities:
   7. 11 South African Official Languages Support & Voice Reading (Text-To-Speech)
   8. Real Web Search with deep factual synthesis + exact source citation links
   9. Live Business Directory Management on searchbiz.co.za (Ads create, delete, restore)
- 10. DirectAdmin Mailbox Provisioning & Mailcow SMTP/IMAP Executive Email
+ 10. Mox SMTP/IMAP Executive Email & Automated Dual-Delivery
 =============================================================================
 """
 
@@ -126,7 +126,7 @@ def get_active_ollama_model() -> str:
     return configured
 
 
-# Email Configurations (Mailcow VPS SMTP/IMAP for ai@searchbiz.co.za and admin@searchbiz.co.za)
+# Email Configurations (Mox VPS SMTP/IMAP for ai@searchbiz.co.za and admin@searchbiz.co.za)
 ADMIN_EMAIL = (os.getenv("ADMIN_EMAIL") or "").strip() or "admin@searchbiz.co.za"
 ADMIN_SMTP_PASS = (os.getenv("ADMIN_SMTP_PASS") or "").strip() or "SearchBizAdmin@2026!"
 
@@ -140,8 +140,8 @@ IMAP_PORT = int(os.getenv("IMAP_PORT", "993"))
 IMAP_USER = (os.getenv("IMAP_USER") or "").strip() or "ai@searchbiz.co.za"
 IMAP_PASS = (os.getenv("IMAP_PASS") or "").strip() or "HermesAI@2026!"
 
-# DirectAdmin API Configuration
-DIRECTADMIN_URL = os.getenv("DIRECTADMIN_URL", "https://localhost:2222").rstrip("/")
+# Optional legacy DirectAdmin fallback configuration (unused when running Mox)
+DIRECTADMIN_URL = os.getenv("DIRECTADMIN_URL", "").rstrip("/")
 DIRECTADMIN_USER = os.getenv("DIRECTADMIN_USER", "admin")
 DIRECTADMIN_PASS = os.getenv("DIRECTADMIN_PASS", "")
 
@@ -13888,7 +13888,7 @@ class SearchBizSiteCrawler:
 - Complete Directory Coverage:
   * 9 South African Provinces: Eastern Cape, Free State, Gauteng, KwaZulu-Natal, Limpopo, Mpumalanga, North West, Northern Cape, Western Cape.
   * 20 Parent Categories & 145 Subcategories: Automotive (1), Beauty (2), Business Services (3), Cleaning (4), Community (5), Construction (6), Education (7), Entertainment (8), Events (9), Financial (10), Food & Dining (11), Groceries (12), Health (13), Home & Garden (14), Industrial (15), Pets (16), Professional Services (17), Real Estate (18), Retail (19), Travel & Tourism (20).
-- Mail Server Infrastructure: admin@searchbiz.co.za (Mailcow IMAP 993 / SMTP 587) with Guaranteed Dual-Delivery Auto-BCC for all outreach."""
+- Mail Server Infrastructure: admin@searchbiz.co.za & ai@searchbiz.co.za (Mox IMAP 993 / SMTP 587 & 465) with Guaranteed Dual-Delivery Auto-BCC for all outreach."""
         return summary
 
     @classmethod
@@ -14011,13 +14011,7 @@ def send_email_smtp(to_email: str, subject: str, body_text: str, body_html: str 
         if ADMIN_EMAIL not in recipients:
             recipients.append(ADMIN_EMAIL)
     
-    # 1. Try local Linux MTA on VPS first (DirectAdmin Exim / Postfix)
-    if os.path.exists("/usr/sbin/sendmail") or shutil.which("sendmail"):
-        mta_res = send_via_local_sendmail(to_email, subject, body_text, body_html, attachment_bytes, attachment_filename, cc_admin=cc_admin)
-        if mta_res.get("success"):
-            return mta_res
-
-    # 2. Try SMTP connections across common ports (configured port, 587, 25, 465)
+    # 1. Try Mox SMTP submission directly first (configured port, 587 STARTTLS, 465 SMTPS)
     from email.mime.application import MIMEApplication
     msg = MIMEMultipart("mixed")
     msg["From"] = f"SearchBiz Executive AI <{SMTP_USER}>"
@@ -14044,39 +14038,40 @@ def send_email_smtp(to_email: str, subject: str, body_text: str, body_html: str 
         msg.attach(part_att)
 
     ports_to_try = [SMTP_PORT]
-    for p in [587, 25, 465]:
+    for p in [587, 465]:
         if p not in ports_to_try:
             ports_to_try.append(p)
 
     for p in ports_to_try:
         try:
-            if p == 465:
-                context = ssl.create_default_context()
+            context = ssl.create_default_context()
+            if SMTP_HOST in ("127.0.0.1", "localhost", "::1"):
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
-                server = smtplib.SMTP_SSL(SMTP_HOST, p, timeout=8, context=context)
+
+            if p == 465:
+                server = smtplib.SMTP_SSL(SMTP_HOST, p, timeout=10, context=context)
             else:
-                server = smtplib.SMTP(SMTP_HOST, p, timeout=8)
-                try:
-                    context = ssl.create_default_context()
-                    context.check_hostname = False
-                    context.verify_mode = ssl.CERT_NONE
-                    server.starttls(context=context)
-                except Exception:
-                    pass
+                server = smtplib.SMTP(SMTP_HOST, p, timeout=10)
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
 
             if SMTP_USER and SMTP_PASS:
-                try:
-                    server.login(SMTP_USER, SMTP_PASS)
-                except Exception as le:
-                    logger.debug(f"SMTP authentication note on port {p}: {le}")
+                server.login(SMTP_USER, SMTP_PASS)
 
             server.sendmail(SMTP_USER, list(set(recipients)), msg.as_string())
             server.quit()
-            logger.info(f"Email successfully sent via SMTP port {p} to {to_email} and delivered to {ADMIN_EMAIL}")
-            return {"success": True, "message": f"Email sent via SMTP port {p} to {to_email} (delivered to {ADMIN_EMAIL})"}
+            logger.info(f"Email successfully sent via Mox SMTP port {p} to {to_email} and delivered to {ADMIN_EMAIL}")
+            return {"success": True, "message": f"Email sent via Mox SMTP port {p} to {to_email} (delivered to {ADMIN_EMAIL})"}
         except Exception as se:
-            logger.debug(f"SMTP attempt on port {p} failed: {se}")
+            logger.debug(f"Mox SMTP attempt on {SMTP_HOST}:{p} failed: {se}")
+
+    # 2. Fallback to local sendmail binary if present
+    if os.path.exists("/usr/sbin/sendmail") or shutil.which("sendmail"):
+        mta_res = send_via_local_sendmail(to_email, subject, body_text, body_html, attachment_bytes, attachment_filename, cc_admin=cc_admin)
+        if mta_res.get("success"):
+            return mta_res
 
     # 3. Fallback to SearchBiz Cloud Email Gateway (/api/bot/email)
     logger.info("Falling back to SearchBiz Cloud Email Gateway (/api/bot/email)...")
@@ -14465,10 +14460,11 @@ def get_listening_ports() -> List[dict]:
                         if port_str.isdigit():
                             p_num = int(port_str)
                             svc_name = {
-                                22: "SSH", 80: "HTTP (Nginx)", 443: "HTTPS (SSL)",
+                                22: "SSH", 80: "HTTP (Nginx/Mox)", 443: "HTTPS (SSL/Mox)",
                                 3000: "SearchBiz Web App", 11434: "Ollama AI Engine",
-                                2222: "DirectAdmin", 3306: "MySQL/MariaDB", 5432: "PostgreSQL",
-                                53: "DNS", 25: "SMTP", 587: "Submission", 993: "IMAPS"
+                                3306: "MySQL/MariaDB", 5432: "PostgreSQL",
+                                53: "DNS", 25: "SMTP MX (Mox)", 465: "SMTPS (Mox)",
+                                587: "SMTP Submission (Mox)", 143: "IMAP (Mox)", 993: "IMAPS (Mox)"
                             }.get(p_num, "Custom Service")
                             ports.append({"port": p_num, "protocol": proto, "service": svc_name, "bind": addr})
     except Exception as e:
@@ -15091,12 +15087,13 @@ You run 24/7 on the founder's Contabo Linux VPS.
    - You work directly with LAYA — your local-first decision engine, notification command center, and autonomous action staging partner.
    - When the founder commands Laya ("Laya do X", "tell Laya to scrape...", "Laya place ads", "Laya generate report", or "/laya [task]"), Laya evaluates the decision matrix (Choice, Score, Route) and collaborates with Hermes and sub-agents to execute every stage of the work autonomously, delivering structured Action Cards with 100% execution!
 
-8. MAILCOW EMAIL & DUAL-DELIVERY ARCHITECTURE (admin@searchbiz.co.za):
+8. MOX EMAIL & DUAL-DELIVERY ARCHITECTURE (admin@searchbiz.co.za):
    - **Executive Admin Mailbox**: `admin@searchbiz.co.za`
      * Password: `SearchBizAdmin@2026!`
      * IMAP (Incoming): `mail.searchbiz.co.za` (or `127.0.0.1`) Port `993` (SSL/TLS)
      * SMTP (Outgoing): `mail.searchbiz.co.za` (or `127.0.0.1`) Port `587` (STARTTLS) or `465` (SSL/TLS)
-     * Webmail (SOGo / Roundcube): `https://mail.searchbiz.co.za`
+     * Mox Webmail: `https://mail.searchbiz.co.za/webmail/`
+     * Mox Admin UI: `https://mail.searchbiz.co.za/admin/`
    - **Guaranteed Dual-Delivery (Auto-BCC)**:
      * Every single email that Hermes or Laya sends out to any company, client, prospect, or user is ALWAYS automatically delivered / BCCed to `admin@searchbiz.co.za`.
    - **Automated Reply Forwarding**:
@@ -15352,7 +15349,7 @@ class SkillRegistry:
             "id": "email_dispatcher",
             "name": "Direct SMTP & IMAP Mailbox Engine",
             "category": "Communications",
-            "description": "Sends and audits emails from ai@searchbiz.co.za via DirectAdmin mail server.",
+            "description": "Sends and audits emails from ai@searchbiz.co.za via Mox mail server.",
             "trigger": "/email_lead [id] or /check_inbox"
         },
         {
@@ -15772,11 +15769,11 @@ class LayaExecutionEngine:
             stage_items.append("1. Perform handshake with active SearchBiz endpoint (https://searchbiz.co.za)")
             stage_items.append("2. Verify API authentication and database synchronization status")
             stage_items.append("3. Format live linking status and capability overview")
-        elif any(k in lower for k in ["admin@searchbiz.co.za", "mailcow", "admin email settings", "admin settings", "admin password", "admin credentials"]):
+        elif any(k in lower for k in ["admin@searchbiz.co.za", "mox", "admin email settings", "admin settings", "admin password", "admin credentials"]):
             action_type = "admin_settings"
-            stage_items.append("1. Fetch Mailcow & DirectAdmin mailbox credentials for admin@searchbiz.co.za")
-            stage_items.append("2. Verify IMAP (port 993) and SMTP (port 587) endpoints")
-            stage_items.append("3. Format complete connection & credentials profile card")
+            stage_items.append("1. Fetch Mox mailbox credentials for admin@searchbiz.co.za")
+            stage_items.append("2. Verify IMAP (port 993) and SMTP (port 587/465) endpoints")
+            stage_items.append("3. Format complete Mox connection & credentials profile card")
         elif any(k in lower for k in ["forward", "check inbox", "incoming", "view chats", "manage chats", "inbox replies"]):
             action_type = "forward_replies"
             stage_items.append("1. Connect to IMAP mailbox for ai@searchbiz.co.za")
@@ -15854,7 +15851,7 @@ class LayaExecutionEngine:
             return {"success": True, "action": "site_scrape", "res": crawl_res}
 
         elif action_type == "admin_settings":
-            card = f"""📧 <b>[Laya Action Card — Mailcow Settings for admin@searchbiz.co.za]</b>
+            card = f"""📧 <b>[Laya Action Card — Mox Mail Settings for admin@searchbiz.co.za]</b>
 
 📍 <b>Email Address:</b>     <code>{ADMIN_EMAIL}</code>
 👤 <b>Username / Login:</b>  <code>{ADMIN_EMAIL}</code>
@@ -15873,8 +15870,9 @@ class LayaExecutionEngine:
 • <b>Username:</b> <code>{ADMIN_EMAIL}</code>
 • <b>Auth:</b>     Required (Same password)
 
-🌐 <b>Webmail Portal (SOGo):</b>
-• <b>URL:</b>      https://mail.searchbiz.co.za
+🌐 <b>Mox Webmail &amp; Admin Portal:</b>
+• <b>Webmail:</b>  https://mail.searchbiz.co.za/webmail/
+• <b>Admin UI:</b> https://mail.searchbiz.co.za/admin/
 
 🔒 <b>Dual-Delivery & Auto-Forwarding:</b>
 • <b>Outbound:</b> Every email sent by Hermes or Laya is automatically BCCed/copied to <code>{ADMIN_EMAIL}</code>.
@@ -16094,7 +16092,7 @@ Seamless business development communication tools:
 - Outbound SMTP Email: Sends verified business proposals, listing invitations, and support emails directly from ai@searchbiz.co.za.
 - Inbound IMAP Monitoring: Reads and monitors incoming inbox emails for user inquiries.
 - WhatsApp Direct Links: Generates pre-formatted, 1-tap WhatsApp click-to-chat links (https://wa.me/...) containing tailored sales pitches.
-- DirectAdmin Integration: Programmatically provisions domain-branded mailboxes and manages DNS records.
+- Mox Mail Integration: Lightweight all-in-one Go mail server managing @searchbiz.co.za mailboxes, DKIM, SPF, DMARC, and TLS automatically.
 
 ## 9. VPS System Administration, RAM Optimization & Speedup
 Autonomous system hygiene and performance tuning routines to keep the server blazing fast:
@@ -16108,7 +16106,7 @@ Autonomous system hygiene and performance tuning routines to keep the server bla
 Comprehensive host protection:
 - Antivirus & Webshell Scanning: Scans web roots (/var/www) for malicious eval backdoors, shell scripts, and virus signatures.
 - UFW & Iptables Banning: Instant 1-click IP banning and unbanning against malicious scrapers and brute-force actors.
-- Port Auditing: Audits all active listening network sockets (Nginx, Node, MySQL, DirectAdmin, Postfix, Dovecot).
+- Port Auditing: Audits all active listening network sockets (Nginx, Node, PostgreSQL, Mox SMTP/IMAP).
 - Fail2ban Integration: Monitors SSH and authentication logs to block automated attacks.
 
 ## 11. Live Internet Research & Fact Grounding
@@ -16570,22 +16568,23 @@ Send <code>/sync_all_vault</code> to start bulk upload stream!"""
         return True
 
     # ------------------------------------------------------------------------
-    # 0A. Mailcow & Admin Email Settings (admin@searchbiz.co.za)
+    # 0A. Mox Mail & Admin Email Settings (admin@searchbiz.co.za)
     # Intercepts:
-    # - "/admin_email", "/mailcow_settings", "/mailcow"
+    # - "/admin_email", "/mox_settings", "/mox", "/email_settings"
     # - "show me the settings and username and password for admin@searchbiz.co.za"
-    # - "mailcow settings", "settings for admin email", "admin email credentials"
+    # - "mox settings", "settings for admin email", "admin email credentials"
     # ------------------------------------------------------------------------
     is_admin_email_req = (
-        text.startswith(("/admin_email", "/mailcow_settings", "/mailcow", "/email_settings")) or
+        text.startswith(("/admin_email", "/mox_settings", "/mox", "/email_settings")) or
         any(k in lower for k in [
-            "admin@searchbiz.co.za", "mailcow settings", "settings for admin", "password for admin",
-            "username and password for admin", "credentials for admin", "setup mailcow", "mailcow email"
+            "admin@searchbiz.co.za", "mox settings", "mox email", "setup mox",
+            "settings for admin", "password for admin",
+            "username and password for admin", "credentials for admin"
         ])
     )
     if is_admin_email_req:
         send_chat_action(chat_id, "typing")
-        card = f"""📧 <b>SearchBiz Mailcow Email Configuration: admin@searchbiz.co.za</b>
+        card = f"""📧 <b>SearchBiz Mox Email Configuration: admin@searchbiz.co.za</b>
 
 📍 <b>Email Address:</b>     <code>{ADMIN_EMAIL}</code>
 👤 <b>Username / Login:</b>  <code>{ADMIN_EMAIL}</code>
@@ -16606,8 +16605,9 @@ Send <code>/sync_all_vault</code> to start bulk upload stream!"""
 • <b>Password:</b>   <code>{ADMIN_SMTP_PASS}</code>
 • <b>Auth:</b>       Required (Same as IMAP)
 
-🌐 <b>Webmail Access (SOGo / Roundcube):</b>
-• <b>URL:</b>        https://mail.searchbiz.co.za (or http://{SMTP_HOST}:8080)
+🌐 <b>Mox Webmail &amp; Admin UI:</b>
+• <b>Webmail:</b>   https://mail.searchbiz.co.za/webmail/
+• <b>Admin UI:</b>  https://mail.searchbiz.co.za/admin/
 
 🔒 <b>Automated Routing Active:</b>
 1. <b>Outbound Copy:</b> Every single email Hermes or Laya sends to any recipient is automatically delivered / BCCed to <b>{ADMIN_EMAIL}</b>.
@@ -17708,7 +17708,7 @@ Web: https://searchbiz.co.za"""
 ⚠️ <b>Error:</b> <code>{html.escape(str(err_msg))}</code>
 
 🔧 <b>Troubleshooting:</b>
-• Verify that your VPS mail service (Mailcow/Postfix/Exim) is running on port 587/25.
+• Verify that your VPS Mox mail service is running on port 587 (STARTTLS) or 465 (SMTPS).
 • Test sending directly with: <code>/send_email {target_email} | Test Subject | Hello</code>"""
             send_telegram(chat_id, fail_msg)
 
@@ -17897,9 +17897,9 @@ Format requirements:
 • <b>British Lady Voice Synthesizer:</b> 🟢 ACTIVE (en-GB-SoniaNeural)
 • <b>Document Engine (.docx & .pdf):</b> 🟢 ACTIVE (Native OpenXML / PDF 1.4)
 • <b>FLUX.1 Image Creator:</b> 🟢 ACTIVE (Open-Source, Watermark-Free)
-• <b>SMTP Outbound Mail:</b> 🟢 READY ({SMTP_USER})
-• <b>IMAP Inbound Mail:</b> 🟢 READY ({IMAP_HOST})
-• <b>DirectAdmin API:</b> 🟢 CONNECTED ({DIRECTADMIN_URL})
+• <b>SMTP Outbound Mail (Mox):</b> 🟢 READY ({SMTP_USER})
+• <b>IMAP Inbound Mail (Mox):</b> 🟢 READY ({IMAP_HOST})
+• <b>Mox Mail Admin UI:</b> 🟢 https://mail.searchbiz.co.za/admin/
 • <b>Active Listening Ports:</b> 🟢 {port_count} Ports Monitored
 • <b>Server RAM:</b> <b>{r['ram_used_mb']} MB / {r['ram_total_mb']} MB</b> ({r['ram_pct']}%)
 • <b>Server CPU Load:</b> <b>{r['load_avg']}</b>
@@ -18467,9 +18467,9 @@ Live Platform: <code>{base_url}</code>
 • <b>Voice Reader (Whisper STT):</b> {'🟢 READY (Local CPU)' if (has_ffmpeg and has_whisper) else '⚪ NEEDS SETUP (/fix_voice)'}
 • <b>British Lady Voice:</b> 🟢 ACTIVE (en-GB-SoniaNeural)
 • <b>Persistent Memory DB:</b> <code>{DB_PATH}</code>
-• <b>SMTP Outbound:</b> <code>{SMTP_HOST}:{SMTP_PORT}</code>
-• <b>IMAP Inbound:</b> <code>{IMAP_HOST}:{IMAP_PORT}</code>
-• <b>DirectAdmin API:</b> <code>{DIRECTADMIN_URL}</code>
+• <b>Mox SMTP Outbound:</b> <code>{SMTP_HOST}:{SMTP_PORT}</code>
+• <b>Mox IMAP Inbound:</b> <code>{IMAP_HOST}:{IMAP_PORT}</code>
+• <b>Mox Webmail / Admin:</b> <code>https://mail.searchbiz.co.za/webmail/</code>
 """
         send_telegram(chat_id, status_msg)
         return

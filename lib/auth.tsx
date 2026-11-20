@@ -130,6 +130,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       localStorage.removeItem("searchbiz_remembered_email");
       localStorage.removeItem("searchbiz_remembered_password");
     } catch (err) {}
+    try {
+      fetch("/api/auth/logout", { method: "POST", keepalive: true }).catch(() => {});
+    } catch (err) {}
   };
 
   return (

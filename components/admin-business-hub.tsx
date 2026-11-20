@@ -302,7 +302,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
       const res = await fetch("/api/admin/test-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: "mailsearchbiz@gmail.com" })
+        body: JSON.stringify({ to: SENDER_EMAIL })
       });
       const data = await res.json();
       if (res.ok && data.success) {

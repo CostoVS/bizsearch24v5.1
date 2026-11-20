@@ -1,26 +1,29 @@
 import { NextResponse } from 'next/server';
 import { saveOtp, generateOtp } from '@/lib/otp-service';
 import { sendOtpEmail } from '@/lib/email-service';
+import { getUserByEmail } from '@/lib/auth-service';
 
 export async function POST(req: Request) {
   try {
     const { email } = await req.json();
-    
+
     if (!email) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    const user = await getUserByEmail(normalizedEmail);
+    const targetEmail = user ? user.email.trim().toLowerCase() : normalizedEmail;
 
     // Generate new OTP (stateless & deterministic to prevent multi-instance Cloud Run desync)
-    const otpCode = generateOtp(normalizedEmail);
-    saveOtp(normalizedEmail, otpCode);
+    const otpCode = generateOtp(targetEmail);
+    saveOtp(targetEmail, otpCode);
 
-    console.log(`[EMAIL OTP RESEND] Generated code ${otpCode} for ${normalizedEmail}`);
+    console.log(`[EMAIL OTP RESEND] Generated code ${otpCode} for ${targetEmail}`);
 
     // Send email via centralized email service
     try {
-      await sendOtpEmail(normalizedEmail, otpCode, 'resend');
+      await sendOtpEmail(targetEmail, otpCode, 'resend');
     } catch (mailErr) {
       console.warn("Resend email SMTP transport failed, code fallback logged to terminal:", mailErr);
     }

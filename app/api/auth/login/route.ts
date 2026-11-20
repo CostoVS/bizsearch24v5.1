@@ -49,17 +49,24 @@ export async function POST(req: Request) {
     user.isLocked = false;
     await saveUser(user);
 
-    // Generate secure email verification OTP
-    const otpCode = generateOtp(normalizedEmail);
-    saveOtp(normalizedEmail, otpCode);
-    console.log(`[LOGIN EMAIL OTP] Generated code ${otpCode} for ${normalizedEmail}`);
+    const targetEmail = user.email.trim().toLowerCase();
+
+    // Generate secure email verification OTP for canonical email
+    const otpCode = generateOtp(targetEmail);
+    saveOtp(targetEmail, otpCode);
+    console.log(`[LOGIN EMAIL OTP] Generated code ${otpCode} for ${targetEmail}`);
 
     // Send email with verification code via centralized email service
     try {
-      await sendOtpEmail(normalizedEmail, otpCode, 'login');
+      const sent = await sendOtpEmail(targetEmail, otpCode, 'login');
+      if (!sent) {
+        console.warn(`Login SMTP dispatch returned false for ${targetEmail}`);
+      }
     } catch (mailErr) {
       console.warn("Login SMTP transport failed, code fallback logged to terminal:", mailErr);
     }
+
+    const hasSetup2FA = Boolean(user.hasSetup2FA);
 
     // Success: Return user details and 2FA status (Never expose secretKey if hasSetup2FA is true for security)
     return NextResponse.json({
@@ -67,12 +74,11 @@ export async function POST(req: Request) {
       requiresEmailVerify: true,
       user: {
         id: user.id,
-        email: user.email,
+        email: targetEmail,
         role: user.role,
         plan: user.plan,
-        hasSetup2FA: user.hasSetup2FA,
-        // Only return secret key to setup if they have not yet enrolled
-        secretKey: user.hasSetup2FA ? undefined : user.secretKey,
+        hasSetup2FA,
+        ...(hasSetup2FA ? {} : { secretKey: user.secretKey }),
         fullName: user.fullName || "",
         address: user.address || "",
         businessName: user.businessName || "",

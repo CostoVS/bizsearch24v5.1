@@ -145,21 +145,21 @@ export default function HomePage() {
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-8 sm:gap-12 mb-10 border-b border-emerald-900/60 pb-10">
                 <div>
                   <div className="text-3xl sm:text-4xl font-display font-bold text-white mb-1">
-                    {Math.max(totalCompaniesCount, getTotalAdsCount()).toLocaleString()}
+                    {totalCompaniesCount.toLocaleString('en-US')}
                   </div>
                   <div className="text-[10px] sm:text-xs tracking-widest text-slate-400 uppercase font-semibold">Companies</div>
                 </div>
                 <div className="hidden sm:block w-px h-12 bg-emerald-950/40"></div>
                 <div>
                   <div className="text-3xl sm:text-4xl font-display font-bold text-emerald-400 mb-1">
-                    {totalVerifiedCount.toLocaleString()}
+                    {totalVerifiedCount.toLocaleString('en-US')}
                   </div>
                   <div className="text-[10px] sm:text-xs tracking-widest text-slate-400 uppercase font-semibold">Verified Businesses</div>
                 </div>
                 <div className="hidden sm:block w-px h-12 bg-emerald-950/40"></div>
                 <div>
                   <div className="text-3xl sm:text-4xl font-display font-bold text-emerald-400 mb-1">
-                    {totalSuburbsAltogether.toLocaleString()}
+                    {totalSuburbsAltogether.toLocaleString('en-US')}
                   </div>
                   <div className="text-[10px] sm:text-xs tracking-widest text-slate-400 uppercase font-semibold">Suburbs Indexed</div>
                 </div>

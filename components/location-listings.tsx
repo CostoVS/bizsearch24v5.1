@@ -143,7 +143,7 @@ export default function LocationListings({ ads: propAds, properName, initialTota
           {/* Display Controls & Stats */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
             <span className="text-xs font-bold text-slate-700">
-              Showing <span className="text-emerald-700 font-extrabold">{totalLocationCount.toLocaleString()}</span> listing{totalLocationCount === 1 ? '' : 's'} in <span className="text-slate-900 font-extrabold capitalize">{properName}</span>
+              Showing <span className="text-emerald-700 font-extrabold">{totalLocationCount.toLocaleString('en-US')}</span> listing{totalLocationCount === 1 ? '' : 's'} in <span className="text-slate-900 font-extrabold capitalize">{properName}</span>
             </span>
 
             <div className="flex items-center gap-1.5 text-xs">
@@ -175,7 +175,7 @@ export default function LocationListings({ ads: propAds, properName, initialTota
                     : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
                 }`}
               >
-                All ({totalLocationCount.toLocaleString()})
+                All ({totalLocationCount.toLocaleString('en-US')})
               </button>
             </div>
           </div>
@@ -351,7 +351,7 @@ export default function LocationListings({ ads: propAds, properName, initialTota
           {pageSize >= 999999 && (paginatedAds.length > visibleLimit || totalLocationCount > paginatedAds.length) && (
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
               <span className="text-xs font-bold text-slate-600">
-                Displaying <span className="text-emerald-700 font-extrabold">{displayedAds.length.toLocaleString()}</span> of <span className="text-slate-900 font-extrabold">{totalLocationCount.toLocaleString()}</span> listings
+                Displaying <span className="text-emerald-700 font-extrabold">{displayedAds.length.toLocaleString('en-US')}</span> of <span className="text-slate-900 font-extrabold">{totalLocationCount.toLocaleString('en-US')}</span> listings
               </span>
               <button
                 onClick={() => {

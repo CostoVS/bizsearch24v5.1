@@ -96,12 +96,21 @@ if [ -f "clean_vps.sh" ]; then
     chmod +x /usr/local/bin/clean_vps 2>/dev/null || true
 fi
 
-for sh_file in push_ads.sh reset_and_scrape.sh; do
+for sh_file in push_ads.sh reset_and_scrape.sh remove_mailcow.sh; do
     if [ -f "$sh_file" ]; then
         cp "$sh_file" "${APP_DIR}/$sh_file" 2>/dev/null || true
         chmod +x "${APP_DIR}/$sh_file" "$sh_file" 2>/dev/null || true
     fi
 done
+
+# Stop and remove heavy Mailcow Docker containers if still running on VPS (replaced by lightweight Mox)
+if command -v docker &> /dev/null; then
+    MC_CIDS=$(docker ps -aq --filter "name=mailcow" 2>/dev/null || true)
+    if [ -n "$MC_CIDS" ]; then
+        echo "🧹 Stopping & removing heavy Mailcow containers to free RAM for SearchBiz + Mox..."
+        docker rm -f $MC_CIDS 2>/dev/null || true
+    fi
+fi
 
 if [ -f "hermes_laya_permanent_memory.json" ]; then
     cp hermes_laya_permanent_memory.json "${APP_DIR}/hermes_laya_permanent_memory.json" 2>/dev/null || true
@@ -127,7 +136,7 @@ if [ "${DB_SIZE}" -lt 500000 ] && [ "${CSV_COUNT}" -gt 0 ]; then
     python3 -u "${APP_DIR}/hermes_searchbiz_agent.py" --push-ads || true
 fi
 
-# Ensure .env has active SearchBiz API and ai@searchbiz.co.za credentials
+# Ensure .env has active SearchBiz API and Mox Mail Server (ai@searchbiz.co.za) credentials
 if [ -f "${APP_DIR}/.env" ]; then
     sed -i '/SEARCHBIZ_API_URL/d' "${APP_DIR}/.env"
     sed -i '/SEARCHBIZ_BOT_SECRET/d' "${APP_DIR}/.env"

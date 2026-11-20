@@ -592,7 +592,7 @@ async function getDbData(): Promise<any> {
   if (dbReadyPromise) {
     await withDbTimeout(dbReadyPromise, 300).catch(() => {});
   }
-  if (!db) {
+  if (isDbCurrentlyOffline() || !db) {
     throw new Error("DB connection not initialized");
   }
   
@@ -626,7 +626,7 @@ async function saveDbData(data: any): Promise<void> {
   if (dbReadyPromise) {
     await withDbTimeout(dbReadyPromise, 300).catch(() => {});
   }
-  if (!db) {
+  if (isDbCurrentlyOffline() || !db) {
     throw new Error("DB connection not initialized");
   }
   

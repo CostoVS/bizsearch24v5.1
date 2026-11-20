@@ -1,4 +1,4 @@
-import { db, initDb, dbReadyPromise, withDbTimeout } from '@/lib/db';
+import { db, initDb, dbReadyPromise, withDbTimeout, isDbCurrentlyOffline } from '@/lib/db';
 import { storage, matomoEvents, matomoProperties } from '@/lib/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import fs from 'fs';
@@ -29,7 +29,7 @@ export async function loadAnalyticsEvents(): Promise<any[]> {
     if (dbReadyPromise) {
       await withDbTimeout(dbReadyPromise, 300).catch(() => {});
     }
-    if (db) {
+    if (!isDbCurrentlyOffline() && db) {
       let dbEvents: any[] = [];
 
       // Try querying storage table key 'analytics_events' with fast timeout
@@ -101,7 +101,7 @@ export async function saveAnalyticsEvents(events: any[]): Promise<void> {
       if (dbReadyPromise) {
         await withDbTimeout(dbReadyPromise, 300).catch(() => {});
       }
-      if (db) {
+      if (!isDbCurrentlyOffline() && db) {
         const record = await withDbTimeout(db.select().from(storage).where(eq(storage.key, STORAGE_KEY)).limit(1), 500);
         if (record && record.length > 0) {
           await withDbTimeout(db.update(storage).set({ data: JSON.stringify(trimmed) }).where(eq(storage.key, STORAGE_KEY)), 500);
@@ -133,7 +133,7 @@ export async function loadMatomoProperties(): Promise<{ id: string; domain: stri
     if (dbReadyPromise) {
       await Promise.race([dbReadyPromise, new Promise(r => setTimeout(r, 600))]).catch(() => {});
     }
-    if (db) {
+    if (!isDbCurrentlyOffline() && db) {
       let dbProps: any[] = [];
       try {
         const rows = await db.select().from(matomoProperties);
@@ -184,7 +184,7 @@ export async function saveMatomoProperties(props: { id: string; domain: string; 
     if (dbReadyPromise) {
       await dbReadyPromise;
     }
-    if (db) {
+    if (!isDbCurrentlyOffline() && db) {
       const record = await db.select().from(storage).where(eq(storage.key, PROPS_STORAGE_KEY)).limit(1);
       if (record && record.length > 0) {
         await db.update(storage).set({ data: JSON.stringify(filtered) }).where(eq(storage.key, PROPS_STORAGE_KEY));
@@ -215,7 +215,7 @@ export async function deleteMatomoProperty(id: string): Promise<void> {
     if (dbReadyPromise) {
       await dbReadyPromise;
     }
-    if (db) {
+    if (!isDbCurrentlyOffline() && db) {
       await db.delete(matomoProperties).where(eq(matomoProperties.id, id));
     }
   } catch (e) {}

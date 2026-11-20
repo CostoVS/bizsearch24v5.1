@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyOtp, deleteOtp } from '@/lib/otp-service';
 import { getUserByEmail } from '@/lib/auth-service';
-import { createEmailVerifiedToken, EMAIL_VERIFIED_COOKIE_NAME } from '@/lib/session';
+import { createEmailVerifiedToken, EMAIL_VERIFIED_COOKIE_NAME, isHttpsRequest } from '@/lib/session';
 
 export async function POST(req: Request) {
   try {
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     res.cookies.set(EMAIL_VERIFIED_COOKIE_NAME, createEmailVerifiedToken(targetEmail), {
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttpsRequest(req),
       path: '/',
       maxAge: 15 * 60,
     });

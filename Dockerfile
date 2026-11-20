@@ -20,8 +20,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Disable Next.js telemetry during build
+# Disable Next.js telemetry and provide ample heap memory during build
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 RUN npm run build
 
@@ -32,20 +33,21 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN apk add --no-cache su-exec \
+    && addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
 
-# Set the correct permission for prerender cache and persistent storage
-RUN mkdir -p .next .data data && chown -R nextjs:nodejs .next .data data && chmod -R 777 .data data
+# Set initial permissions for prerender cache and persistent storage
+RUN mkdir -p .next .data data && chown -R nextjs:nodejs .next .data data && chmod -R 775 .data data
 
 # Automatically leverage output traces to reduce image size
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-USER nextjs
+COPY --from=builder /app/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 3000
 
@@ -53,5 +55,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
-# Automatically pre-warm the in-memory O(1) ad index immediately on container start so even the first request after `docker compose up --build -d web` is 0ms
-CMD ["sh", "-c", "(sleep 2 && wget -qO- 'http://127.0.0.1:3000/api/storage?statsOnly=true' >/dev/null 2>&1 && wget -qO- 'http://127.0.0.1:3000/api/storage?freeOnly=true&includeFeatured=true&page=1&pageSize=12' >/dev/null 2>&1 && wget -qO- 'http://127.0.0.1:3000/api/storage?page=1&pageSize=24' >/dev/null 2>&1) & exec node server.js"]
+CMD ["sh", "/app/docker-entrypoint.sh"]

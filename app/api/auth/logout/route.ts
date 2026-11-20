@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
-import { EMAIL_VERIFIED_COOKIE_NAME, SESSION_COOKIE_NAME } from '@/lib/session';
+import { EMAIL_VERIFIED_COOKIE_NAME, isHttpsRequest, SESSION_COOKIE_NAME } from '@/lib/session';
 
-export async function POST() {
+export async function POST(req: Request) {
   const res = NextResponse.json({ success: true });
+  const secureCookie = isHttpsRequest(req);
 
   res.cookies.set(SESSION_COOKIE_NAME, '', {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookie,
     path: '/',
     maxAge: 0,
   });
@@ -15,7 +16,7 @@ export async function POST() {
   res.cookies.set(EMAIL_VERIFIED_COOKIE_NAME, '', {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookie,
     path: '/',
     maxAge: 0,
   });

@@ -1209,7 +1209,7 @@ function getIndexedDataset(baseData: any): IndexedDataset {
   return indexed;
 }
 
-if (!globalRef.startupWarmupTriggered) {
+if (!globalRef.startupWarmupTriggered && process.env.NEXT_PHASE !== 'phase-production-build') {
   globalRef.startupWarmupTriggered = true;
   setImmediate(() => {
     try {

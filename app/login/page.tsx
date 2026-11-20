@@ -166,8 +166,18 @@ export default function LoginPage() {
         if (res.ok) {
           setSecretKey(data.user.secretKey);
           setHasSetup2FA(false);
+          setEmailResendSuccess("");
           
           if (data.requiresEmailVerify) {
+            if (data.emailSent === false) {
+              setErrorMsg(
+                data.emailError
+                  ? `Verification email could not be sent: ${data.emailError}`
+                  : "Verification email could not be sent. Please check SMTP settings and try 'Resend Verification Code'."
+              );
+            } else {
+              setErrorMsg("");
+            }
             setStep("EMAIL_VERIFY");
           } else {
             setStep("2FA");
@@ -198,11 +208,21 @@ export default function LoginPage() {
           setSecretKey(enrolled2FA ? "" : (data.user.secretKey || ""));
           setTwoFaCode("");
           setEmailOtp("");
+          setEmailResendSuccess("");
           setShowResetRequestForm(false);
           setResetRequestSuccess("");
           setResetRequestError("");
 
           if (data.requiresEmailVerify) {
+            if (data.emailSent === false) {
+              setErrorMsg(
+                data.emailError
+                  ? `Verification email could not be sent: ${data.emailError}`
+                  : "Verification email could not be sent. Please check SMTP settings and try 'Resend Verification Code'."
+              );
+            } else {
+              setErrorMsg("");
+            }
             setStep("EMAIL_VERIFY");
           } else {
             setStep("2FA");
@@ -1046,7 +1066,15 @@ export default function LoginPage() {
                   Verify Your Email
                 </h2>
                 <p className="text-slate-500 font-medium text-sm">
-                  We've sent a 6-digit verification code to <span className="font-semibold text-slate-800">{email}</span>. Please enter it below to proceed.
+                  {errorMsg && !emailResendSuccess ? (
+                    <>
+                      Enter the 6-digit verification code for <span className="font-semibold text-slate-800">{email}</span>.
+                    </>
+                  ) : (
+                    <>
+                      We&apos;ve sent a 6-digit verification code to <span className="font-semibold text-slate-800">{email}</span>. Please enter it below to proceed.
+                    </>
+                  )}
                 </p>
               </div>
 

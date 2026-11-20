@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { sendPasswordResetEmail } from '@/lib/email-service';
+import { sendPasswordResetEmailDetailed } from '@/lib/email-service';
 
 export async function POST(req: Request) {
   try {
@@ -15,11 +15,11 @@ export async function POST(req: Request) {
     const mockResetToken = 'xyz123-reset-token';
     const resetLink = `${baseUrl}/reset-password?email=${encodeURIComponent(email)}&token=${mockResetToken}`;
 
-    const sent = await sendPasswordResetEmail(email, resetLink);
-    if (!sent) {
+    const result = await sendPasswordResetEmailDetailed(email, resetLink);
+    if (!result.success) {
       return NextResponse.json({
         success: false,
-        error: 'Failed to dispatch reset email via SMTP. Please try again or check SMTP configuration.'
+        error: `Failed to dispatch reset email via SMTP: ${result.error || 'Please check SMTP configuration.'}`
       }, { status: 500 });
     }
 

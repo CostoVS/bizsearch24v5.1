@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { saveOtp, generateOtp } from '@/lib/otp-service';
-import { sendOtpEmail } from '@/lib/email-service';
+import { sendOtpEmailDetailed } from '@/lib/email-service';
 import { getUserByEmail } from '@/lib/auth-service';
 
 export async function POST(req: Request) {
@@ -22,10 +22,16 @@ export async function POST(req: Request) {
     console.log(`[EMAIL OTP RESEND] Generated code ${otpCode} for ${targetEmail}`);
 
     // Send email via centralized email service
-    try {
-      await sendOtpEmail(targetEmail, otpCode, 'resend');
-    } catch (mailErr) {
-      console.warn("Resend email SMTP transport failed, code fallback logged to terminal:", mailErr);
+    const emailRes = await sendOtpEmailDetailed(targetEmail, otpCode, 'resend');
+    if (!emailRes.success) {
+      console.error(`[EMAIL OTP RESEND] SMTP failed for ${targetEmail}:`, emailRes.error);
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Could not send verification email: ${emailRes.error || 'SMTP connection failed.'}`,
+        },
+        { status: 502 }
+      );
     }
 
     return NextResponse.json({

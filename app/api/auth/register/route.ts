@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserByEmail, saveUser, getDeterministicSecretKey } from '@/lib/auth-service';
 import { saveOtp, generateOtp } from '@/lib/otp-service';
 import { readServerDb, writeServerDb } from '@/lib/bot-ad-service';
-import { sendOtpEmail, sendEmail } from '@/lib/email-service';
+import { sendOtpEmailDetailed, sendEmail } from '@/lib/email-service';
 import fs from 'fs';
 import path from 'path';
 
@@ -177,24 +177,36 @@ export async function POST(req: Request) {
     console.log(`[EMAIL OTP] Generated verification code ${otpCode} for ${normalizedEmail}`);
 
     // Send Email Verification OTP via centralized email service
+    let emailSent = false;
+    let emailError: string | undefined;
     try {
-      const emailSent = await sendOtpEmail(normalizedEmail, otpCode, 'register');
+      const emailRes = await sendOtpEmailDetailed(normalizedEmail, otpCode, 'register');
+      emailSent = emailRes.success;
       if (emailSent) {
         console.log(`Email OTP successfully sent to ${normalizedEmail}`);
       } else {
-        console.warn(`Email OTP dispatch returned false for ${normalizedEmail}`);
+        emailError = emailRes.error || 'SMTP dispatch failed.';
+        console.warn(`Email OTP dispatch failed for ${normalizedEmail}:`, emailError);
       }
-    } catch (nodemailerErr) {
+    } catch (nodemailerErr: any) {
+      emailError = nodemailerErr?.message || String(nodemailerErr);
       console.warn("Nodemailer OTP relay warning (offline fallback or unconfigured SMTP):", nodemailerErr);
     }
 
-    // Store premium business verification application on backend
+    // Store premium business verification application on persistent .data volume
     if (isPremium) {
-      const APP_FILE = path.join(process.cwd(), 'lib', 'premium-applications.json');
+      const DATA_DIR = path.join(process.cwd(), '.data');
+      const APP_FILE = path.join(DATA_DIR, 'premium-applications.json');
+      const LEGACY_APP_FILE = path.join(process.cwd(), 'lib', 'premium-applications.json');
       let applications: any[] = [];
       try {
+        if (!fs.existsSync(DATA_DIR)) {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+        }
         if (fs.existsSync(APP_FILE)) {
           applications = JSON.parse(fs.readFileSync(APP_FILE, 'utf-8'));
+        } else if (fs.existsSync(LEGACY_APP_FILE)) {
+          applications = JSON.parse(fs.readFileSync(LEGACY_APP_FILE, 'utf-8'));
         }
       } catch (e) {}
 
@@ -317,7 +329,11 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       requiresEmailVerify: true,
-      message: 'Registration successful! Please verify your email address first.',
+      emailSent,
+      ...(emailError ? { emailError } : {}),
+      message: emailSent
+        ? 'Registration successful! Please verify your email address first.'
+        : 'Account created, but the verification email could not be sent right now.',
       user: {
         email: newUser.email,
         role: newUser.role,

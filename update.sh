@@ -15,7 +15,9 @@ cleanup_preserve() {
 }
 trap cleanup_preserve EXIT
 
-for keep_file in ".env" ".data/users-db.json" "data/users-db.json" ".data/2fa-reset-requests.json" "data/2fa-reset-requests.json" ".data/email-otps.json"; do
+KEEP_FILES=".env .data/users-db.json data/users-db.json .data/2fa-reset-requests.json data/2fa-reset-requests.json .data/email-otps.json .data/premium-applications.json .data/ip-bindings-db.json data/db.json .data/db.json data/site-settings.json .data/site-settings.json"
+
+for keep_file in ${KEEP_FILES}; do
   if [ -f "${keep_file}" ]; then
     mkdir -p "${PRESERVE_DIR}/$(dirname "${keep_file}")"
     cp -a "${keep_file}" "${PRESERVE_DIR}/${keep_file}"
@@ -27,7 +29,7 @@ if [ -d ".git" ]; then
   git fetch origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null || true
 fi
 
-for keep_file in ".env" ".data/users-db.json" "data/users-db.json" ".data/2fa-reset-requests.json" "data/2fa-reset-requests.json" ".data/email-otps.json"; do
+for keep_file in ${KEEP_FILES}; do
   if [ -f "${PRESERVE_DIR}/${keep_file}" ]; then
     mkdir -p "$(dirname "${keep_file}")"
     cp -a "${PRESERVE_DIR}/${keep_file}" "${keep_file}"
@@ -47,7 +49,7 @@ fi
 
 mkdir -p .data data
 # Ensure non-root nextjs user (uid 1001) in Docker can write to bind-mounted .data and data
-chmod -R a+rwX .data data 2>/dev/null || chmod -R 777 .data data 2>/dev/null || true
+chmod -R ug+rwX .data data 2>/dev/null || chmod -R 775 .data data 2>/dev/null || true
 
 if [ -f "docker-compose.yml" ] && command -v docker &> /dev/null; then
   echo "Rebuilding and starting searchbiz-postgres-db and searchbiz-web containers..."
@@ -66,12 +68,12 @@ if [ -d "vps-agent" ] && [ -f "vps-agent/update_agent.sh" ]; then
 fi
 
 echo "Pre-warming SearchBiz O(1) RAM Index..."
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  if curl -sSf "http://127.0.0.1:3005/api/storage?statsOnly=true" >/dev/null 2>&1 || curl -sSf "http://127.0.0.1:3000/api/storage?statsOnly=true" >/dev/null 2>&1; then
+for i in $(seq 1 20); do
+  if curl -sSf "http://127.0.0.1:3005/api/site-settings" >/dev/null 2>&1 || curl -sSf "http://127.0.0.1:3000/api/site-settings" >/dev/null 2>&1; then
+    curl -s "http://127.0.0.1:3005/api/storage?statsOnly=true" >/dev/null 2>&1 || true
     curl -s "http://127.0.0.1:3005/api/storage?freeOnly=true&includeFeatured=true&page=1&pageSize=12" >/dev/null 2>&1 || true
     curl -s "http://127.0.0.1:3005/api/storage?page=1&pageSize=24" >/dev/null 2>&1 || true
-    curl -s "http://127.0.0.1:3000/api/storage?freeOnly=true&includeFeatured=true&page=1&pageSize=12" >/dev/null 2>&1 || true
-    curl -s "http://127.0.0.1:3000/api/storage?page=1&pageSize=24" >/dev/null 2>&1 || true
+    curl -s "http://127.0.0.1:3000/api/storage?statsOnly=true" >/dev/null 2>&1 || true
     echo "SearchBiz RAM Index is warm and serving!"
     break
   fi

@@ -26,4 +26,6 @@ vps-agent
 *.sqlite
 *.sqlite3
 raw_po_part*.txt
+tsconfig.tsbuildinfo
+*.log
 

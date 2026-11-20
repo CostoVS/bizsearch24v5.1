@@ -271,7 +271,7 @@ export const initDb = () => {
         };
 
         try {
-          await withDbTimeout(runMigrations(state.pool), 1000);
+          await withDbTimeout(runMigrations(state.pool), 4000);
           state.hasRunMigrations = true;
           console.log("Postgres tables checked/created successfully.");
           return true;

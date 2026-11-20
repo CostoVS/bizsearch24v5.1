@@ -5,12 +5,19 @@ import { getUsersList, saveUser } from "@/lib/auth-service";
 
 export const dynamic = 'force-dynamic';
 
-const APPS_FILE = path.join(process.cwd(), "lib", "premium-applications.json");
+const DATA_DIR = path.join(process.cwd(), ".data");
+const APPS_FILE = path.join(DATA_DIR, "premium-applications.json");
+const LEGACY_APPS_FILE = path.join(process.cwd(), "lib", "premium-applications.json");
 
 function getApplications(): any[] {
   try {
     if (fs.existsSync(APPS_FILE)) {
       return JSON.parse(fs.readFileSync(APPS_FILE, "utf-8"));
+    }
+    if (fs.existsSync(LEGACY_APPS_FILE)) {
+      const legacy = JSON.parse(fs.readFileSync(LEGACY_APPS_FILE, "utf-8"));
+      saveApplications(legacy);
+      return legacy;
     }
   } catch (e) {
     console.error("Failed to read premium-applications.json:", e);
@@ -20,6 +27,9 @@ function getApplications(): any[] {
 
 function saveApplications(apps: any[]) {
   try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
     fs.writeFileSync(APPS_FILE, JSON.stringify(apps, null, 2), "utf-8");
   } catch (e) {
     console.error("Failed to write premium-applications.json:", e);

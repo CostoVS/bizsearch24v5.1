@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUserByEmail, saveUser } from '@/lib/auth-service';
 import { generateOtp, saveOtp } from '@/lib/otp-service';
-import { sendOtpEmail } from '@/lib/email-service';
+import { sendOtpEmailDetailed } from '@/lib/email-service';
 
 export async function POST(req: Request) {
   try {
@@ -57,13 +57,18 @@ export async function POST(req: Request) {
     console.log(`[LOGIN EMAIL OTP] Generated code ${otpCode} for ${targetEmail}`);
 
     // Send email with verification code via centralized email service
+    let emailSent = false;
+    let emailError: string | undefined;
     try {
-      const sent = await sendOtpEmail(targetEmail, otpCode, 'login');
-      if (!sent) {
-        console.warn(`Login SMTP dispatch returned false for ${targetEmail}`);
+      const emailRes = await sendOtpEmailDetailed(targetEmail, otpCode, 'login');
+      emailSent = emailRes.success;
+      if (!emailRes.success) {
+        emailError = emailRes.error || 'SMTP dispatch failed.';
+        console.warn(`Login SMTP dispatch failed for ${targetEmail}:`, emailError);
       }
-    } catch (mailErr) {
-      console.warn("Login SMTP transport failed, code fallback logged to terminal:", mailErr);
+    } catch (mailErr: any) {
+      emailError = mailErr?.message || String(mailErr);
+      console.warn("Login SMTP transport failed:", mailErr);
     }
 
     const hasSetup2FA = Boolean(user.hasSetup2FA);
@@ -72,6 +77,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       requiresEmailVerify: true,
+      emailSent,
+      ...(emailError ? { emailError } : {}),
       user: {
         id: user.id,
         email: targetEmail,

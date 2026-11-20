@@ -157,3 +157,14 @@ export async function requireAdminSession(req: NextRequest | Request): Promise<S
   }
   return null;
 }
+
+export function isHttpsRequest(req: NextRequest | Request): boolean {
+  const proto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
+  if (proto === 'https') return true;
+  if (proto === 'http') return false;
+  const origin = req.headers.get('origin') || '';
+  if (origin.startsWith('https://')) return true;
+  const referer = req.headers.get('referer') || '';
+  if (referer.startsWith('https://')) return true;
+  return req.url.startsWith('https://');
+}

@@ -4,10 +4,11 @@ import { TOTP, NobleCryptoPlugin, ScureBase32Plugin, createGuardrails } from 'ot
 import {
   createSessionToken,
   EMAIL_VERIFIED_COOKIE_NAME,
+  isHttpsRequest,
   SESSION_COOKIE_NAME,
 } from '@/lib/session';
 
-function buildVerifiedResponse(user: any, message: string) {
+function buildVerifiedResponse(user: any, message: string, secureCookie: boolean) {
   const safeUserPayload = {
     id: user.id,
     email: user.email,
@@ -38,7 +39,7 @@ function buildVerifiedResponse(user: any, message: string) {
   res.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookie,
     path: '/',
     maxAge: 7 * 24 * 60 * 60,
   });
@@ -46,7 +47,7 @@ function buildVerifiedResponse(user: any, message: string) {
   res.cookies.set(EMAIL_VERIFIED_COOKIE_NAME, '', {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookie,
     path: '/',
     maxAge: 0,
   });
@@ -56,6 +57,7 @@ function buildVerifiedResponse(user: any, message: string) {
 
 export async function POST(req: Request) {
   try {
+    const secureCookie = isHttpsRequest(req);
     const { email, token } = await req.json();
 
     if (!email) {
@@ -81,7 +83,7 @@ export async function POST(req: Request) {
         await saveUser(user);
       }
 
-      return buildVerifiedResponse(user, '2-Step Verification verified successfully (Admin Bypass).');
+      return buildVerifiedResponse(user, '2-Step Verification verified successfully (Admin Bypass).', secureCookie);
     }
 
     // Verify the TOTP token using otplib with properly configured plugins and guardrails
@@ -109,7 +111,7 @@ export async function POST(req: Request) {
       await saveUser(user);
     }
 
-    return buildVerifiedResponse(user, '2-Step Verification verified successfully.');
+    return buildVerifiedResponse(user, '2-Step Verification verified successfully.', secureCookie);
   } catch (error: any) {
     console.error('Server 2FA Verification Activation Error:', error);
     return NextResponse.json({ error: 'An unexpected internal server error occurred.' }, { status: 500 });

@@ -47,6 +47,29 @@ if [ ! -f ".env" ] && [ -f ".env.example" ]; then
   fi
 fi
 
+# Migrate any legacy Gmail SMTP settings in .env to Mox Mail Server
+if [ -f ".env" ] && grep -qiE "smtp\.gmail\.com|mailsearchbiz@gmail\.com|mail@searchbiz\.co\.za" ".env"; then
+  echo "Migrating legacy Gmail SMTP settings in .env to Mox Mail Server..."
+  sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^FROM_EMAIL=/d' .env
+  cat << 'EOF' >> .env
+SMTP_HOST="mail.searchbiz.co.za"
+SMTP_PORT="465"
+SMTP_USER="admin@searchbiz.co.za"
+SMTP_PASS="SearchBizAdmin@2026!"
+FROM_EMAIL="admin@searchbiz.co.za"
+NOREPLY_EMAIL="noreply@searchbiz.co.za"
+SMTP_NOREPLY_USER="noreply@searchbiz.co.za"
+AI_EMAIL="ai@searchbiz.co.za"
+SMTP_AI_USER="ai@searchbiz.co.za"
+SMTP_AI_PASS="HermesAI@2026!"
+ADMIN_MAILBOX="admin@searchbiz.co.za"
+SMTP_ADMIN_USER="admin@searchbiz.co.za"
+SMTP_ADMIN_PASS="SearchBizAdmin@2026!"
+HELP_EMAIL="help@searchbiz.co.za"
+SMTP_HELP_USER="help@searchbiz.co.za"
+EOF
+fi
+
 mkdir -p .data data
 # Ensure non-root nextjs user (uid 1001) in Docker can write to bind-mounted .data and data
 chmod -R ug+rwX .data data 2>/dev/null || chmod -R 775 .data data 2>/dev/null || true
@@ -60,6 +83,9 @@ fi
 if command -v nginx &> /dev/null; then
   systemctl start nginx 2>/dev/null || true
   systemctl reload nginx 2>/dev/null || true
+fi
+if command -v docker &> /dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'npm-app-1'; then
+  docker exec npm-app-1 nginx -s reload 2>/dev/null || true
 fi
 
 if [ -d "vps-agent" ] && [ -f "vps-agent/update_agent.sh" ]; then

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserByEmail, saveUser, getDeterministicSecretKey } from '@/lib/auth-service';
 import { saveOtp, generateOtp } from '@/lib/otp-service';
 import { readServerDb, writeServerDb } from '@/lib/bot-ad-service';
-import { sendOtpEmailDetailed, sendEmail } from '@/lib/email-service';
+import { sendOtpEmailDetailed, sendEmail, getMailboxAddress } from '@/lib/email-service';
 import fs from 'fs';
 import path from 'path';
 
@@ -314,7 +314,8 @@ export async function POST(req: Request) {
         `;
 
         sendEmail({
-          to: process.env.ADMIN_EMAIL || "admin@searchbiz.co.za",
+          role: 'admin',
+          to: getMailboxAddress('admin'),
           subject: `🚨 [PREMIUM SIGNUP SPECIAL] New Verification Submission (${plan}) from ${normalizedEmail}`,
           html: mailHtml,
         }).catch((err: any) => {

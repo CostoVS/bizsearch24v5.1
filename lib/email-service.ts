@@ -3,13 +3,19 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
+export type EmailRole = 'noreply' | 'ai' | 'admin' | 'help';
+
 export interface SmtpConfig {
+  role: EmailRole;
+  server: 'mox';
   host: string;
   port: number;
   user: string;
   pass: string;
   fromEmail: string;
+  displayName: string;
   secure: boolean;
+  legacyGmailBlocked?: boolean;
 }
 
 interface TransportCandidate {
@@ -25,6 +31,63 @@ const PLACEHOLDER_PASSWORDS = new Set([
   'your_smtp_password',
   'changeme',
 ]);
+
+const ROLE_META: Record<
+  EmailRole,
+  {
+    defaultEmail: string;
+    displayName: string;
+    purpose: string;
+    userEnvKeys: string[];
+    passEnvKeys: string[];
+    fromEnvKeys: string[];
+  }
+> = {
+  noreply: {
+    defaultEmail: 'noreply@searchbiz.co.za',
+    displayName: 'SearchBiz Auth',
+    purpose: '2FA & Login Verification',
+    userEnvKeys: ['SMTP_NOREPLY_USER', 'NOREPLY_EMAIL'],
+    passEnvKeys: ['SMTP_NOREPLY_PASS', 'NOREPLY_PASS'],
+    fromEnvKeys: ['NOREPLY_EMAIL', 'SMTP_NOREPLY_USER'],
+  },
+  ai: {
+    defaultEmail: 'ai@searchbiz.co.za',
+    displayName: 'SearchBiz AI',
+    purpose: 'AI Assistant & Automation',
+    userEnvKeys: ['SMTP_AI_USER', 'AI_EMAIL'],
+    passEnvKeys: ['SMTP_AI_PASS', 'AI_PASS'],
+    fromEnvKeys: ['AI_EMAIL', 'SMTP_AI_USER'],
+  },
+  admin: {
+    defaultEmail: 'admin@searchbiz.co.za',
+    displayName: 'SearchBiz Administration',
+    purpose: 'Admin & Broadcasts',
+    userEnvKeys: ['SMTP_ADMIN_USER', 'ADMIN_MAILBOX'],
+    passEnvKeys: ['SMTP_ADMIN_PASS', 'ADMIN_SMTP_PASS'],
+    fromEnvKeys: ['ADMIN_MAILBOX', 'SMTP_ADMIN_USER'],
+  },
+  help: {
+    defaultEmail: 'help@searchbiz.co.za',
+    displayName: 'SearchBiz Support',
+    purpose: 'Customer Support & Help Desk',
+    userEnvKeys: ['SMTP_HELP_USER', 'HELP_EMAIL'],
+    passEnvKeys: ['SMTP_HELP_PASS', 'HELP_PASS'],
+    fromEnvKeys: ['HELP_EMAIL', 'SMTP_HELP_USER'],
+  },
+};
+
+function isBlockedLegacyEmailOrHost(val: string | undefined): boolean {
+  if (!val) return false;
+  const lower = val.toLowerCase().trim();
+  return (
+    lower.includes('gmail.com') ||
+    lower.includes('googlemail.com') ||
+    lower === 'mail@searchbiz.co.za' ||
+    lower === 'support@searchbiz.co.za' ||
+    lower === 'admin@bizsearch.co.za'
+  );
+}
 
 /**
  * Strip surrounding matching quotes and linebreaks WITHOUT deleting quote characters inside passwords.
@@ -84,32 +147,128 @@ function isRunningInsideDocker(): boolean {
   return process.env.HOSTNAME === '0.0.0.0';
 }
 
-/**
- * Robust extraction of SMTP config from process.env with .env file fallback.
- */
-export function getSmtpConfig(): SmtpConfig {
-  const fileEnv = readEnvFileFallback();
-  const getVal = (key: string, fallback: string): string => {
-    const envVal = cleanEnvValue(process.env[key]);
-    if (envVal && !PLACEHOLDER_PASSWORDS.has(envVal)) {
-      return envVal;
-    }
-    const diskVal = cleanEnvValue(fileEnv[key]);
-    if (diskVal && !PLACEHOLDER_PASSWORDS.has(diskVal)) {
-      return diskVal;
-    }
-    return envVal || diskVal || fallback;
-  };
+function resolveEnvVar(fileEnv: Record<string, string>, key: string): string {
+  const envVal = cleanEnvValue(process.env[key]);
+  if (envVal && !PLACEHOLDER_PASSWORDS.has(envVal)) {
+    return envVal;
+  }
+  const diskVal = cleanEnvValue(fileEnv[key]);
+  if (diskVal && !PLACEHOLDER_PASSWORDS.has(diskVal)) {
+    return diskVal;
+  }
+  return envVal || diskVal || '';
+}
 
-  const host = getVal('SMTP_HOST', 'mail.searchbiz.co.za');
-  const rawPort = getVal('SMTP_PORT', '465');
+export function getMailboxAddress(role: EmailRole): string {
+  const fileEnv = readEnvFileFallback();
+  const meta = ROLE_META[role];
+  for (const key of meta.fromEnvKeys) {
+    const val = resolveEnvVar(fileEnv, key);
+    if (val && val.includes('@') && !isBlockedLegacyEmailOrHost(val)) {
+      return val.toLowerCase();
+    }
+  }
+  return meta.defaultEmail;
+}
+
+/**
+ * Resolve Mox Mail Server SMTP configuration for a specific SearchBiz email role.
+ * Legacy Gmail SMTP hosts/accounts are explicitly rejected so all mail routes through Mox.
+ */
+export function getSmtpConfig(role: EmailRole = 'admin'): SmtpConfig {
+  const fileEnv = readEnvFileFallback();
+  const meta = ROLE_META[role];
+
+  const rawGlobalHost = resolveEnvVar(fileEnv, 'SMTP_HOST');
+  const rawGlobalUser = resolveEnvVar(fileEnv, 'SMTP_USER');
+  const rawGlobalFrom = resolveEnvVar(fileEnv, 'FROM_EMAIL');
+  const legacyGmailBlocked =
+    isBlockedLegacyEmailOrHost(rawGlobalHost) ||
+    isBlockedLegacyEmailOrHost(rawGlobalUser) ||
+    isBlockedLegacyEmailOrHost(rawGlobalFrom);
+
+  const host =
+    rawGlobalHost && !isBlockedLegacyEmailOrHost(rawGlobalHost)
+      ? rawGlobalHost
+      : 'mail.searchbiz.co.za';
+
+  const rawPort = resolveEnvVar(fileEnv, 'SMTP_PORT') || '465';
   const port = parseInt(rawPort, 10) || 465;
-  const user = getVal('SMTP_USER', 'admin@searchbiz.co.za');
-  const pass = getVal('SMTP_PASS', '');
-  const fromEmail = getVal('FROM_EMAIL', user);
+
+  let user = '';
+  for (const key of meta.userEnvKeys) {
+    const val = resolveEnvVar(fileEnv, key);
+    if (val && !isBlockedLegacyEmailOrHost(val)) {
+      user = val.toLowerCase();
+      break;
+    }
+  }
+  if (!user && role === 'admin' && rawGlobalUser && !isBlockedLegacyEmailOrHost(rawGlobalUser)) {
+    user = rawGlobalUser.toLowerCase();
+  }
+  if (!user) {
+    user = meta.defaultEmail;
+  }
+
+  let fromEmail = '';
+  for (const key of meta.fromEnvKeys) {
+    const val = resolveEnvVar(fileEnv, key);
+    if (val && !isBlockedLegacyEmailOrHost(val)) {
+      fromEmail = val.toLowerCase();
+      break;
+    }
+  }
+  if (!fromEmail) {
+    fromEmail = user;
+  }
+
+  let pass = '';
+  for (const key of meta.passEnvKeys) {
+    const val = resolveEnvVar(fileEnv, key);
+    if (val && !PLACEHOLDER_PASSWORDS.has(val)) {
+      pass = val;
+      break;
+    }
+  }
+  if (!pass && !legacyGmailBlocked) {
+    const globalPass = resolveEnvVar(fileEnv, 'SMTP_PASS');
+    if (globalPass && !PLACEHOLDER_PASSWORDS.has(globalPass)) {
+      pass = globalPass;
+    }
+  }
+
   const secure = port === 465;
 
-  return { host, port, user, pass, fromEmail, secure };
+  return {
+    role,
+    server: 'mox',
+    host,
+    port,
+    user,
+    pass,
+    fromEmail,
+    displayName: meta.displayName,
+    secure,
+    legacyGmailBlocked,
+  };
+}
+
+export function getAllMoxMailboxesSummary() {
+  const roles: EmailRole[] = ['noreply', 'ai', 'admin', 'help'];
+  return roles.map((role) => {
+    const cfg = getSmtpConfig(role);
+    return {
+      role,
+      purpose: ROLE_META[role].purpose,
+      email: cfg.fromEmail,
+      user: cfg.user,
+      host: cfg.host,
+      port: cfg.port,
+      server: 'mox',
+      configured: Boolean(cfg.pass && !PLACEHOLDER_PASSWORDS.has(cfg.pass)),
+      legacyGmailBlocked: Boolean(cfg.legacyGmailBlocked),
+    };
+  });
 }
 
 function isLocalBridgeHost(host: string): boolean {
@@ -124,46 +283,38 @@ function isLocalBridgeHost(host: string): boolean {
 }
 
 /**
- * Build an ordered list of SMTP host/port candidates so Docker containers on a VPS
+ * Build an ordered list of Mox SMTP host/port candidates so Docker containers on a VPS
  * can always reach Mox (via host.docker.internal, 172.17.0.1, or mail.searchbiz.co.za)
- * on either port 587 (STARTTLS) or port 465 (SMTPS).
+ * on either port 465 (SMTPS) or port 587 (STARTTLS).
  */
 function buildTransportCandidates(config: SmtpConfig): TransportCandidate[] {
   const inDocker = isRunningInsideDocker();
   const primaryHost = config.host.trim() || 'mail.searchbiz.co.za';
   const primaryLower = primaryHost.toLowerCase();
   const altPort = config.port === 465 ? 587 : 465;
-  const isCustomExternal =
-    !isLocalBridgeHost(primaryLower) &&
-    primaryLower !== 'mail.searchbiz.co.za' &&
-    !primaryLower.endsWith('.searchbiz.co.za');
 
   const rawList: Array<{ host: string; port: number }> = [];
 
   if (inDocker && (primaryLower === '127.0.0.1' || primaryLower === 'localhost' || primaryLower === '::1')) {
-    // Inside Docker, 127.0.0.1 is the container itself; try host gateway first.
     rawList.push({ host: 'host.docker.internal', port: config.port });
     rawList.push({ host: 'host.docker.internal', port: altPort });
     rawList.push({ host: '172.17.0.1', port: config.port });
     rawList.push({ host: '172.17.0.1', port: altPort });
     rawList.push({ host: 'mail.searchbiz.co.za', port: config.port });
     rawList.push({ host: 'mail.searchbiz.co.za', port: altPort });
-    rawList.push({ host: primaryHost, port: config.port });
   } else {
     rawList.push({ host: primaryHost, port: config.port });
     rawList.push({ host: primaryHost, port: altPort });
 
-    if (!isCustomExternal) {
-      if (inDocker) {
-        rawList.push({ host: 'host.docker.internal', port: config.port });
-        rawList.push({ host: 'host.docker.internal', port: altPort });
-        rawList.push({ host: '172.17.0.1', port: config.port });
-        rawList.push({ host: '172.17.0.1', port: altPort });
-      }
-      if (primaryLower !== 'mail.searchbiz.co.za') {
-        rawList.push({ host: 'mail.searchbiz.co.za', port: 587 });
-        rawList.push({ host: 'mail.searchbiz.co.za', port: 465 });
-      }
+    if (inDocker) {
+      rawList.push({ host: 'host.docker.internal', port: config.port });
+      rawList.push({ host: 'host.docker.internal', port: altPort });
+      rawList.push({ host: '172.17.0.1', port: config.port });
+      rawList.push({ host: '172.17.0.1', port: altPort });
+    }
+    if (primaryLower !== 'mail.searchbiz.co.za') {
+      rawList.push({ host: 'mail.searchbiz.co.za', port: 465 });
+      rawList.push({ host: 'mail.searchbiz.co.za', port: 587 });
     }
   }
 
@@ -212,85 +363,57 @@ function createNodemailerTransporter(
   });
 }
 
-/**
- * Ensure SPF/DKIM/DMARC alignment:
- * When relaying through Gmail SMTP (smtp.gmail.com) with a @gmail.com user,
- * sending with an unaligned custom domain in the From header triggers spam filters.
- * Align From to the authenticated SMTP account and put custom domain in Reply-To.
- */
-function resolveAlignedSender(
+function resolveMoxSender(
   config: SmtpConfig,
-  displayName = 'SearchBiz.co.za',
   requestedFrom?: string,
   forceUserAsFrom = false
 ): { from: string; replyTo: string; address: string } {
-  const userDomain = config.user.split('@')[1]?.toLowerCase() || '';
-  const fromDomain = config.fromEmail.split('@')[1]?.toLowerCase() || '';
-  const isGmailRelay =
-    config.host.toLowerCase().includes('gmail.com') ||
-    userDomain === 'gmail.com' ||
-    userDomain === 'googlemail.com';
-
-  const domainMismatchOnGmail = isGmailRelay && fromDomain !== userDomain;
-  const alignedEmail =
-    forceUserAsFrom || domainMismatchOnGmail
-      ? config.user
-      : config.fromEmail || config.user;
-
-  let finalFrom = `"${displayName}" <${alignedEmail}>`;
+  const alignedEmail = forceUserAsFrom ? config.user : config.fromEmail || config.user;
+  let finalFrom = `"${config.displayName}" <${alignedEmail}>`;
   let finalAddress = alignedEmail;
 
   if (requestedFrom && !forceUserAsFrom) {
     const match = requestedFrom.match(/<([^>]+)>/);
     const reqAddr = (match ? match[1] : requestedFrom).trim().toLowerCase();
-    const reqDomain = reqAddr.split('@')[1] || '';
-    if (!isGmailRelay || reqDomain === userDomain) {
+    if (reqAddr && !isBlockedLegacyEmailOrHost(reqAddr)) {
       finalFrom = requestedFrom;
       finalAddress = reqAddr;
-    } else {
-      const customNameMatch = requestedFrom.match(/^"?([^"<]+)"?\s*</);
-      const customName = customNameMatch ? customNameMatch[1].trim() : displayName;
-      finalFrom = `"${customName}" <${config.user}>`;
-      finalAddress = config.user;
     }
   }
 
-  const alignedReplyTo = domainMismatchOnGmail
-    ? config.user
-    : config.fromEmail || config.user;
-
   return {
     from: finalFrom,
-    replyTo: alignedReplyTo,
+    replyTo: config.fromEmail || config.user,
     address: finalAddress,
   };
 }
 
-let lastWorkingCandidate: TransportCandidate | null = null;
-let lastWorkingConfigHash = '';
+const workingCandidateByRole = new Map<string, TransportCandidate>();
 
-export function getEmailTransporter(): nodemailer.Transporter {
-  const config = getSmtpConfig();
+export function getEmailTransporter(role: EmailRole = 'admin'): nodemailer.Transporter {
+  const config = getSmtpConfig(role);
   const candidates = buildTransportCandidates(config);
-  const hash = `${config.host}_${config.port}_${config.user}_${config.pass.slice(0, 4)}`;
-  const active =
-    lastWorkingCandidate && lastWorkingConfigHash === hash
-      ? lastWorkingCandidate
-      : candidates[0];
+  const key = `${role}_${config.host}_${config.port}_${config.user}_${config.pass.slice(0, 4)}`;
+  const active = workingCandidateByRole.get(key) || candidates[0];
   return createNodemailerTransporter(config, active);
 }
 
-export async function verifySmtpConnection(): Promise<{
+export async function verifySmtpConnection(role: EmailRole = 'admin'): Promise<{
   success: boolean;
   message: string;
   config: Partial<SmtpConfig>;
 }> {
-  const config = getSmtpConfig();
+  const config = getSmtpConfig(role);
   if (!config.pass || PLACEHOLDER_PASSWORDS.has(config.pass)) {
+    const hint = config.legacyGmailBlocked
+      ? `Legacy Gmail SMTP settings detected in .env and blocked. Update .env with Mox Mail Server credentials for ${config.user}.`
+      : `Mox SMTP password for ${config.user} is not configured in .env.`;
     return {
       success: false,
-      message: 'SMTP_PASS is not configured (empty or still placeholder in .env).',
+      message: hint,
       config: {
+        role: config.role,
+        server: 'mox',
         host: config.host,
         port: config.port,
         user: config.user,
@@ -307,13 +430,15 @@ export async function verifySmtpConnection(): Promise<{
     const transporter = createNodemailerTransporter(config, candidate);
     try {
       await transporter.verify();
-      lastWorkingCandidate = candidate;
-      lastWorkingConfigHash = `${config.host}_${config.port}_${config.user}_${config.pass.slice(0, 4)}`;
+      const cacheKey = `${role}_${config.host}_${config.port}_${config.user}_${config.pass.slice(0, 4)}`;
+      workingCandidateByRole.set(cacheKey, candidate);
       transporter.close();
       return {
         success: true,
-        message: `SMTP connection established successfully to ${candidate.host}:${candidate.port} as ${config.user}`,
+        message: `Mox SMTP connection established to ${candidate.host}:${candidate.port} as ${config.user}`,
         config: {
+          role: config.role,
+          server: 'mox',
           host: candidate.host,
           port: candidate.port,
           user: config.user,
@@ -329,8 +454,10 @@ export async function verifySmtpConnection(): Promise<{
 
   return {
     success: false,
-    message: errors.join(' | ') || 'SMTP verification failed.',
+    message: errors.join(' | ') || 'Mox SMTP verification failed.',
     config: {
+      role: config.role,
+      server: 'mox',
       host: config.host,
       port: config.port,
       user: config.user,
@@ -341,6 +468,7 @@ export async function verifySmtpConnection(): Promise<{
 }
 
 export interface SendEmailOptions {
+  role?: EmailRole;
   to: string | string[];
   subject: string;
   html?: string;
@@ -385,25 +513,19 @@ function isSenderRejectedError(err: any): boolean {
 function isAuthError(err: any): boolean {
   const msg = String(err?.message || err || '').toLowerCase();
   const code = Number(err?.responseCode || 0);
-  return code === 535 || msg.includes('invalid login') || msg.includes('authentication failed');
+  return code === 534 || code === 535 || msg.includes('invalid login') || msg.includes('authentication failed');
 }
 
-export async function sendEmail(
+async function dispatchWithConfig(
+  config: SmtpConfig,
   opts: SendEmailOptions
-): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  const config = getSmtpConfig();
-
-  if (!config.pass || PLACEHOLDER_PASSWORDS.has(config.pass)) {
-    const errMsg = 'SMTP_PASS is missing or not configured in .env.';
-    console.error(`[EmailService] Cannot send email to ${JSON.stringify(opts.to)}: ${errMsg}`);
-    return { success: false, error: errMsg };
-  }
-
-  const configHash = `${config.host}_${config.port}_${config.user}_${config.pass.slice(0, 4)}`;
+): Promise<{ success: boolean; messageId?: string; error?: string; authFailed?: boolean }> {
+  const cacheKey = `${config.role}_${config.host}_${config.port}_${config.user}_${config.pass.slice(0, 4)}`;
   const candidates = buildTransportCandidates(config);
-  if (lastWorkingCandidate && lastWorkingConfigHash === configHash) {
+  const cached = workingCandidateByRole.get(cacheKey);
+  if (cached) {
     const idx = candidates.findIndex(
-      (c) => c.host === lastWorkingCandidate!.host && c.port === lastWorkingCandidate!.port
+      (c) => c.host === cached.host && c.port === cached.port
     );
     if (idx > 0) {
       const [preferred] = candidates.splice(idx, 1);
@@ -416,7 +538,7 @@ export async function sendEmail(
   for (const candidate of candidates) {
     const transporter = createNodemailerTransporter(config, candidate);
     try {
-      const aligned = resolveAlignedSender(config, 'SearchBiz.co.za', opts.from, false);
+      const aligned = resolveMoxSender(config, opts.from, false);
       const mailOptions: nodemailer.SendMailOptions = {
         from: aligned.from,
         sender: aligned.address,
@@ -435,32 +557,28 @@ export async function sendEmail(
 
       try {
         const info = await transporter.sendMail(mailOptions);
-        lastWorkingCandidate = candidate;
-        lastWorkingConfigHash = configHash;
+        workingCandidateByRole.set(cacheKey, candidate);
         transporter.close();
         console.log(
-          `[EmailService] Dispatched email via ${candidate.host}:${candidate.port} to ${JSON.stringify(opts.to)}, From: ${aligned.from}, MessageId: ${info.messageId}`
+          `[EmailService/Mox:${config.role}] Dispatched email via ${candidate.host}:${candidate.port} to ${JSON.stringify(opts.to)}, From: ${aligned.from}, MessageId: ${info.messageId}`
         );
         return { success: true, messageId: info.messageId };
       } catch (sendErr: any) {
-        // Mox strictly validates MAIL FROM / From against the authenticated user.
-        // If sender was rejected and differed from config.user, immediately retry with config.user.
         if (
           isSenderRejectedError(sendErr) &&
           aligned.address.toLowerCase() !== config.user.toLowerCase()
         ) {
-          const strictAligned = resolveAlignedSender(config, 'SearchBiz.co.za', opts.from, true);
+          const strictAligned = resolveMoxSender(config, opts.from, true);
           const info = await transporter.sendMail({
             ...mailOptions,
             from: strictAligned.from,
             sender: strictAligned.address,
             replyTo: opts.replyTo || aligned.address,
           });
-          lastWorkingCandidate = candidate;
-          lastWorkingConfigHash = configHash;
+          workingCandidateByRole.set(cacheKey, candidate);
           transporter.close();
           console.log(
-            `[EmailService] Dispatched email (aligned sender ${strictAligned.address}) via ${candidate.host}:${candidate.port} to ${JSON.stringify(opts.to)}, MessageId: ${info.messageId}`
+            `[EmailService/Mox:${config.role}] Dispatched email (aligned sender ${strictAligned.address}) via ${candidate.host}:${candidate.port} to ${JSON.stringify(opts.to)}, MessageId: ${info.messageId}`
           );
           return { success: true, messageId: info.messageId };
         }
@@ -471,17 +589,59 @@ export async function sendEmail(
       const errMsg = err?.message || String(err);
       attemptErrors.push(`${candidate.host}:${candidate.port} -> ${errMsg}`);
       if (isAuthError(err)) {
-        // Wrong credentials won't succeed on another port on the same server, stop early.
-        console.error(`[EmailService] SMTP authentication failed for ${config.user}:`, errMsg);
-        lastWorkingCandidate = null;
-        return { success: false, error: errMsg };
+        console.error(`[EmailService/Mox:${config.role}] SMTP authentication failed for ${config.user}:`, errMsg);
+        workingCandidateByRole.delete(cacheKey);
+        return { success: false, error: errMsg, authFailed: true };
       }
     }
   }
 
-  lastWorkingCandidate = null;
-  const combinedError = attemptErrors.join(' | ');
-  console.error(`[EmailService] Failed to send email to ${JSON.stringify(opts.to)}: ${combinedError}`);
+  workingCandidateByRole.delete(cacheKey);
+  return { success: false, error: attemptErrors.join(' | ') };
+}
+
+export async function sendEmail(
+  opts: SendEmailOptions
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const role: EmailRole = opts.role || 'admin';
+  const config = getSmtpConfig(role);
+
+  if (!config.pass || PLACEHOLDER_PASSWORDS.has(config.pass)) {
+    const errMsg = config.legacyGmailBlocked
+      ? `Legacy Gmail SMTP settings detected in .env and blocked. Please configure Mox SMTP credentials for ${config.user}.`
+      : `Mox SMTP_PASS for ${config.user} is missing or not configured in .env.`;
+    console.error(`[EmailService/Mox:${role}] Cannot send email to ${JSON.stringify(opts.to)}: ${errMsg}`);
+    return { success: false, error: errMsg };
+  }
+
+  const primaryRes = await dispatchWithConfig(config, opts);
+  if (primaryRes.success) {
+    return { success: true, messageId: primaryRes.messageId };
+  }
+
+  // If a secondary mailbox (noreply / help / ai) isn't a standalone Mox login yet
+  // (e.g. configured as an alias on admin@searchbiz.co.za), try authenticating as admin@searchbiz.co.za.
+  if (primaryRes.authFailed && role !== 'admin') {
+    const adminConfig = getSmtpConfig('admin');
+    if (
+      adminConfig.pass &&
+      !PLACEHOLDER_PASSWORDS.has(adminConfig.pass) &&
+      (adminConfig.user !== config.user || adminConfig.pass !== config.pass)
+    ) {
+      const roleFrom = opts.from || `"${config.displayName}" <${config.fromEmail}>`;
+      const fallbackRes = await dispatchWithConfig(adminConfig, {
+        ...opts,
+        from: roleFrom,
+        replyTo: opts.replyTo || config.fromEmail,
+      });
+      if (fallbackRes.success) {
+        return { success: true, messageId: fallbackRes.messageId };
+      }
+    }
+  }
+
+  const combinedError = primaryRes.error || 'Mox SMTP dispatch failed.';
+  console.error(`[EmailService/Mox:${role}] Failed to send email to ${JSON.stringify(opts.to)}: ${combinedError}`);
   return { success: false, error: combinedError };
 }
 
@@ -491,8 +651,8 @@ export async function sendOtpEmailDetailed(
   type: 'register' | 'login' | 'resend' = 'register'
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const normalizedEmail = toEmail.trim().toLowerCase();
-  const config = getSmtpConfig();
-  const aligned = resolveAlignedSender(config, 'SearchBiz Account');
+  const noreplyEmail = getMailboxAddress('noreply');
+  const helpEmail = getMailboxAddress('help');
 
   const title =
     type === 'login'
@@ -524,6 +684,7 @@ export async function sendOtpEmailDetailed(
     '',
     'This code is valid for 10 minutes.',
     'If you did not request this sign-in, you can ignore this email.',
+    `Need help? Contact ${helpEmail}`,
     '',
     'SearchBiz.co.za',
   ].join('\n');
@@ -540,19 +701,23 @@ export async function sendOtpEmailDetailed(
       <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin: 0 0 8px 0;">
         This code expires in 10 minutes.
       </p>
-      <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin: 0;">
+      <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin: 0 0 8px 0;">
         If you did not request this sign-in, you can safely ignore this message.
+      </p>
+      <p style="font-size: 11px; color: #94a3b8; line-height: 1.5; margin: 12px 0 0 0; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+        Automated security notice from ${noreplyEmail} &bull; Support: <a href="mailto:${helpEmail}" style="color: #059669;">${helpEmail}</a>
       </p>
     </div>
   `;
 
   return await sendEmail({
+    role: 'noreply',
     to: normalizedEmail,
     subject,
     html,
     text,
-    from: aligned.from,
-    replyTo: aligned.replyTo,
+    from: `"SearchBiz Auth" <${noreplyEmail}>`,
+    replyTo: noreplyEmail,
   });
 }
 
@@ -570,8 +735,8 @@ export async function sendPasswordResetEmailDetailed(
   resetLink: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const normalizedEmail = toEmail.trim().toLowerCase();
-  const config = getSmtpConfig();
-  const aligned = resolveAlignedSender(config, 'SearchBiz Security');
+  const noreplyEmail = getMailboxAddress('noreply');
+  const helpEmail = getMailboxAddress('help');
 
   const text = [
     'SearchBiz.co.za - Password Reset Request',
@@ -582,6 +747,7 @@ export async function sendPasswordResetEmailDetailed(
     resetLink,
     '',
     'If you did not request this reset, you can safely ignore this email.',
+    `Support: ${helpEmail}`,
   ].join('\n');
 
   const html = `
@@ -600,18 +766,19 @@ export async function sendPasswordResetEmailDetailed(
         <p style="color: #64748b; font-size: 14px; line-height: 20px; border-top: 1px solid #e2e8f0; padding-top: 24px;">If you did not request this reset, you can safely ignore this email. Your password will remain unchanged.</p>
       </div>
       <div style="padding: 24px; text-align: center;">
-        <p style="color: #94a3b8; font-size: 12px; margin: 0;">&copy; ${new Date().getFullYear()} SearchBiz.co.za &bull; South Africa</p>
+        <p style="color: #94a3b8; font-size: 12px; margin: 0;">&copy; ${new Date().getFullYear()} SearchBiz.co.za &bull; Sent via ${noreplyEmail} &bull; Support: <a href="mailto:${helpEmail}" style="color: #059669;">${helpEmail}</a></p>
       </div>
     </div>
   `;
 
   return await sendEmail({
+    role: 'noreply',
     to: normalizedEmail,
     subject: 'SearchBiz Password Reset Request',
     html,
     text,
-    from: aligned.from,
-    replyTo: aligned.replyTo,
+    from: `"SearchBiz Auth" <${noreplyEmail}>`,
+    replyTo: noreplyEmail,
   });
 }
 

@@ -181,6 +181,22 @@ ${messages.map(m => `[${m.sender === "user" ? "User" : "AI"}]: ${m.text}`).join(
         window.dispatchEvent(new CustomEvent("searchbiz_messages_updated"));
       }
 
+      // Also dispatch real Mox email via help@searchbiz.co.za
+      await fetch("/api/support/escalate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderName,
+          senderEmail,
+          senderPhone: user ? (user.phone || "") : guestPhone,
+          senderWhatsapp: user ? "" : guestWhatsapp,
+          senderAddress: user ? "" : guestAddress,
+          details: user ? registeredUserHelpDetail : guestHelpDetail,
+          chatTranscript: messages.map(m => `[${m.sender === "user" ? "User" : "AI"}]: ${m.text}`).join("\n"),
+          isGuest: !user,
+        }),
+      }).catch(() => {});
+
       setSubmitSuccess(true);
     } catch (err) {
       console.error("Escalation failed:", err);
@@ -305,8 +321,23 @@ ${messages.map(m => `[${m.sender === "user" ? "User" : "AI"}]: ${m.text}`).join(
                 </div>
 
                 <p className="text-slate-600 text-xs leading-relaxed">
-                  Is our AI system unable to fully solve your inquiry? You are welcome to submit a direct message. This escalates into a SearchBiz Chat context directly in the SearchBiz admin dashboard.
+                  Is our AI system unable to fully solve your inquiry? Submit a direct support ticket below (routed to{" "}
+                  <a href="mailto:help@searchbiz.co.za" className="font-bold text-emerald-700 hover:underline">
+                    help@searchbiz.co.za
+                  </a>{" "}
+                  and our SearchBiz Admin inbox).
                 </p>
+
+                <a
+                  href="mailto:help@searchbiz.co.za"
+                  className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 hover:bg-emerald-100 transition text-xs font-bold"
+                >
+                  <span className="flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>help@searchbiz.co.za</span>
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-emerald-700">Email Support</span>
+                </a>
 
                 {/* Direct Action triggers depending on Auth state */}
                 {!showEscalateForm ? (

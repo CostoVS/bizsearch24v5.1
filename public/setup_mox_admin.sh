@@ -7,8 +7,10 @@
 set -e
 
 MOX_HOST="${MOX_HOST:-mail.searchbiz.co.za}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-admin@searchbiz.co.za}"
+NOREPLY_EMAIL="${NOREPLY_EMAIL:-noreply@searchbiz.co.za}"
 AI_EMAIL="${AI_EMAIL:-ai@searchbiz.co.za}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@searchbiz.co.za}"
+HELP_EMAIL="${HELP_EMAIL:-help@searchbiz.co.za}"
 
 echo "========================================================"
 echo "📧 SearchBiz Mox Mail Server Verification"
@@ -18,8 +20,10 @@ if systemctl is-active --quiet mox 2>/dev/null; then
     echo "✅ Mox systemd service is ACTIVE."
 elif pgrep -x mox >/dev/null 2>&1; then
     echo "✅ Mox process is RUNNING."
+elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -qx 'mox'; then
+    echo "✅ Mox Docker container is RUNNING."
 else
-    echo "⚠️  Mox process not detected locally via systemd/pgrep (may be remote or under another unit name)."
+    echo "⚠️  Mox process not detected locally via systemd/pgrep/docker (may be remote or under another unit name)."
 fi
 
 echo ""
@@ -32,8 +36,10 @@ echo ""
 echo "========================================================"
 echo "✅ MOX MAIL CONFIGURATION FOR SEARCHBIZ"
 echo "========================================================"
-echo "📍 Admin Mailbox:     ${ADMIN_EMAIL}"
+echo "🔐 2FA / Login Box:   ${NOREPLY_EMAIL}"
 echo "🤖 AI Outreach Box:   ${AI_EMAIL}"
+echo "📍 Admin Mailbox:     ${ADMIN_EMAIL}"
+echo "🛟 Support Mailbox:   ${HELP_EMAIL}"
 echo ""
 echo "📥 Incoming Mail (IMAP):"
 echo "   • Host:            ${MOX_HOST} (or 127.0.0.1 on VPS)"

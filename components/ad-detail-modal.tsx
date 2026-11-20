@@ -549,7 +549,7 @@ ADMIN ACTION REQUIRED: Search for Ad ID [${ad.id}] in Admin Dashboard to inspect
             }
 
             const recipientEmail =
-              ad?.email || ad?.userId || "admin@bizsearch.co.za";
+              ad?.email || ad?.userId || "admin@searchbiz.co.za";
 
             const newMsg = {
               id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,

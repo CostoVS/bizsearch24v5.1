@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendEmail, getSmtpConfig } from '@/lib/email-service';
+import { sendEmail, getSmtpConfig, getMailboxAddress } from '@/lib/email-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,7 @@ function checkAuth(req: NextRequest): boolean {
 
 /**
  * GET /api/bot/email
- * Status check of the email gateway
+ * Status check of the AI Mox email gateway (ai@searchbiz.co.za)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -25,14 +25,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
     }
 
-    const sysConfig = getSmtpConfig();
+    const aiConfig = getSmtpConfig('ai');
 
     return NextResponse.json({
       status: 'ready',
-      configuredHost: sysConfig.host,
-      configuredPort: sysConfig.port,
-      configuredUser: sysConfig.user ? `${sysConfig.user.slice(0, 3)}***@${sysConfig.user.split('@')[1] || 'domain.com'}` : 'Not set',
-      fromEmail: sysConfig.fromEmail,
+      server: 'mox',
+      role: 'ai',
+      configuredHost: aiConfig.host,
+      configuredPort: aiConfig.port,
+      configuredUser: aiConfig.user,
+      fromEmail: aiConfig.fromEmail,
+      hasSmtpConfigured: Boolean(aiConfig.pass),
       supportedActions: ['send', 'verify']
     });
   } catch (error: any) {
@@ -42,7 +45,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/bot/email
- * Send an email via the SearchBiz email gateway
+ * Send an email via the SearchBiz AI Mox email gateway (ai@searchbiz.co.za)
  */
 export async function POST(req: NextRequest) {
   try {
@@ -59,9 +62,7 @@ export async function POST(req: NextRequest) {
       body: rawBody, 
       from, 
       replyTo,
-      attachments,
-      // Optional custom SMTP override (e.g. connecting directly to Mox / VPS mail)
-      smtpConfig 
+      attachments
     } = body;
 
     const emailContent = text || rawBody || html || '';
@@ -75,12 +76,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email body or text content is required.' }, { status: 400 });
     }
 
-    const sysConfig = getSmtpConfig();
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@searchbiz.co.za').trim();
+    const aiConfig = getSmtpConfig('ai');
+    const adminEmail = getMailboxAddress('admin');
     const recipientTrimmed = to.trim();
     const bccList: string[] = [];
 
-    // Always deliver a copy of all outbound emails to admin@searchbiz.co.za
+    // Always deliver a copy of all outbound AI emails to admin@searchbiz.co.za
     if (recipientTrimmed.toLowerCase() !== adminEmail.toLowerCase()) {
       bccList.push(adminEmail);
     }
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const sender = from || `"SearchBiz AI Executive" <${sysConfig.fromEmail || sysConfig.user}>`;
+    const sender = from || `"SearchBiz AI" <${aiConfig.fromEmail}>`;
 
     const htmlContent = html || `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b;">
@@ -103,16 +104,17 @@ ${emailContent}
         </div>
         <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
         <p style="font-size: 11px; color: #94a3b8; margin: 0; text-align: center;">
-          Sent automatically via SearchBiz AI Assistant &bull; searchbiz.co.za
+          Sent automatically via SearchBiz AI (${aiConfig.fromEmail}) &bull; searchbiz.co.za
         </p>
       </div>
     `;
 
     const sendRes = await sendEmail({
+      role: 'ai',
       from: sender,
       to: recipientTrimmed,
       bcc: bccList.length > 0 ? bccList : undefined,
-      replyTo: replyTo || sysConfig.user,
+      replyTo: replyTo || aiConfig.fromEmail,
       subject: subject.trim(),
       text: emailContent,
       html: htmlContent,
@@ -125,7 +127,9 @@ ${emailContent}
 
     return NextResponse.json({
       success: true,
-      message: `Email dispatched successfully to ${recipientTrimmed}`,
+      server: 'mox',
+      from: aiConfig.fromEmail,
+      message: `Email dispatched successfully via Mox (${aiConfig.fromEmail}) to ${recipientTrimmed}`,
       messageId: sendRes.messageId,
       recipient: recipientTrimmed,
       timestamp: new Date().toISOString()

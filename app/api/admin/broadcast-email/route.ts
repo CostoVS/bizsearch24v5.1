@@ -46,10 +46,11 @@ function saveLog(log: BroadcastLog): void {
 
 export async function GET() {
   const logs = readLogs();
-  const smtpConfig = getSmtpConfig();
+  const smtpConfig = getSmtpConfig('admin');
 
   return NextResponse.json({
     status: 'ready',
+    server: 'mox',
     sender: smtpConfig.fromEmail || SENDER_EMAIL,
     smtpHost: smtpConfig.host,
     smtpUser: smtpConfig.user,
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
       category?: string;
     }> = [];
 
-    const smtpConfig = getSmtpConfig();
+    const smtpConfig = getSmtpConfig('admin');
     const effectiveSender = smtpConfig.fromEmail || smtpConfig.user || SENDER_EMAIL;
 
     if (isTest) {
@@ -157,7 +158,8 @@ ${personalizedBody}
 
       try {
         await sendEmail({
-          from: `"SearchBiz South Africa" <${effectiveSender}>`,
+          role: 'admin',
+          from: `"SearchBiz Administration" <${effectiveSender}>`,
           to: cleanEmail,
           replyTo: effectiveSender,
           subject: personalizedSubject,

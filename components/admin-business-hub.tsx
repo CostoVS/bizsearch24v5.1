@@ -169,6 +169,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   const [broadcastLogs, setBroadcastLogs] = useState<any[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+  const [testMoxRole, setTestMoxRole] = useState<"admin" | "noreply" | "ai" | "help">("admin");
   const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Export full extracted businesses to CSV
@@ -298,11 +299,17 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
   const handleTestSmtp = async () => {
     setIsTestingSmtp(true);
     setSmtpTestResult(null);
+    const roleEmails: Record<"admin" | "noreply" | "ai" | "help", string> = {
+      admin: "admin@searchbiz.co.za",
+      noreply: "noreply@searchbiz.co.za",
+      ai: "ai@searchbiz.co.za",
+      help: "help@searchbiz.co.za",
+    };
     try {
       const res = await fetch("/api/admin/test-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: SENDER_EMAIL })
+        body: JSON.stringify({ role: testMoxRole, to: roleEmails[testMoxRole] })
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -627,15 +634,28 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
 
           <div className="flex flex-wrap md:flex-col gap-3 shrink-0">
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={isTestingSmtp}
-                onClick={handleTestSmtp}
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 transition border border-emerald-500/40 shadow-sm cursor-pointer disabled:opacity-50"
-              >
-                <Mail className="w-3.5 h-3.5" />
-                <span>{isTestingSmtp ? "Testing SMTP..." : "Test SMTP Live"}</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={testMoxRole}
+                  onChange={(e) => setTestMoxRole(e.target.value as "admin" | "noreply" | "ai" | "help")}
+                  aria-label="Select Mox mailbox role to test"
+                  className="px-3 py-2.5 rounded-xl bg-slate-900 text-emerald-200 border border-emerald-500/40 text-xs font-bold outline-none cursor-pointer"
+                >
+                  <option value="admin">admin@ (Admin)</option>
+                  <option value="noreply">noreply@ (2FA/Login)</option>
+                  <option value="ai">ai@ (AI)</option>
+                  <option value="help">help@ (Support)</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={isTestingSmtp}
+                  onClick={handleTestSmtp}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 transition border border-emerald-500/40 shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{isTestingSmtp ? "Testing Mox..." : "Test Mox SMTP"}</span>
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -651,7 +671,7 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
             </div>
             <div className="px-4 py-2 rounded-xl bg-emerald-900/60 border border-emerald-600/30 text-emerald-200 text-xs font-semibold flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Official Sender: {SENDER_EMAIL}</span>
+              <span>Mox Sender: {SENDER_EMAIL}</span>
             </div>
           </div>
         </div>

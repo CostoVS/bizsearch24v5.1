@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUserByEmail } from '@/lib/auth-service';
 import { createTwoFaResetRequest } from '@/lib/twofa-reset-requests';
-import { sendEmail } from '@/lib/email-service';
+import { sendEmail, getMailboxAddress } from '@/lib/email-service';
 import {
   EMAIL_VERIFIED_COOKIE_NAME,
   getCookieValue,
@@ -48,9 +48,10 @@ export async function POST(req: Request) {
       reason: typeof reason === 'string' ? reason : '',
     });
 
-    // Notify Admin via email (best effort, never blocks request creation)
-    const adminEmail = process.env.ADMIN_EMAIL || 'nicholauscostochetty@gmail.com';
+    // Notify Admin via Mox email (best effort, never blocks request creation)
+    const adminEmail = getMailboxAddress('admin');
     sendEmail({
+      role: 'noreply',
       to: adminEmail,
       subject: `SearchBiz 2FA Reset Request from ${targetEmail}`,
       html: `

@@ -400,6 +400,7 @@ To undo this, send:
 
       try {
         const res = await sendEmail({
+          role: 'ai',
           to,
           subject,
           text: bodyText,
@@ -588,10 +589,11 @@ Visit https://searchbiz.co.za to claim or submit your business listing today.
 Best regards,
 The SearchBiz Executive Team
 https://searchbiz.co.za
-support@searchbiz.co.za`;
+help@searchbiz.co.za`;
 
       try {
         const res = await sendEmail({
+          role: 'ai',
           to: recipient,
           subject,
           text: plainBody,

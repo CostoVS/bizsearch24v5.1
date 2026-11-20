@@ -226,6 +226,9 @@ if ! curl -sSf --connect-timeout 2 --max-time 4 "http://127.0.0.1:3005/api/stora
         systemctl start docker 2>/dev/null || true
         docker start searchbiz-postgres-db 2>/dev/null || true
         docker start searchbiz-web 2>/dev/null || (cd .. && docker compose up -d web 2>/dev/null) || (cd /home/thehightable/bizsearch24v4 && docker compose up -d web 2>/dev/null) || true
+        if docker network inspect proxy_network >/dev/null 2>&1; then
+            docker network connect proxy_network searchbiz-web 2>/dev/null || true
+        fi
     fi
     if command -v pm2 &> /dev/null; then
         pm2 restart all 2>/dev/null || true
@@ -235,6 +238,9 @@ fi
 if command -v nginx &> /dev/null; then
     systemctl start nginx 2>/dev/null || true
     systemctl reload nginx 2>/dev/null || true
+fi
+if command -v docker &> /dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'npm-app-1'; then
+    docker exec npm-app-1 nginx -s reload 2>/dev/null || true
 fi
 
 # Non-blocking background pre-warm with strict 3s timeout so update_agent.sh NEVER hangs

@@ -98,6 +98,9 @@ if [ -f "docker-compose.yml" ] && command -v docker &> /dev/null; then
   echo "Rebuilding and starting searchbiz-postgres-db and searchbiz-web containers..."
   systemctl start docker 2>/dev/null || true
   docker compose up --build -d db web || docker compose up --build -d || docker start searchbiz-web 2>/dev/null || true
+  if docker network inspect proxy_network >/dev/null 2>&1; then
+    docker network connect proxy_network searchbiz-web 2>/dev/null || true
+  fi
 fi
 
 if command -v nginx &> /dev/null; then

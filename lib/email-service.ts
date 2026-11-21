@@ -45,8 +45,8 @@ const ROLE_META: Record<
 > = {
   noreply: {
     defaultEmail: 'noreply@searchbiz.co.za',
-    displayName: 'SearchBiz Auth',
-    purpose: '2FA & Login Verification',
+    displayName: 'SearchBiz 2FA (No-Reply)',
+    purpose: '2FA & Login Verification (Send-Only)',
     userEnvKeys: ['SMTP_NOREPLY_USER', 'NOREPLY_EMAIL'],
     passEnvKeys: ['SMTP_NOREPLY_PASS', 'NOREPLY_PASS'],
     fromEnvKeys: ['NOREPLY_EMAIL', 'SMTP_NOREPLY_USER'],
@@ -367,7 +367,7 @@ function resolveMoxSender(
   config: SmtpConfig,
   requestedFrom?: string,
   forceUserAsFrom = false
-): { from: string; replyTo: string; address: string } {
+): { from: string; replyTo?: string; address: string } {
   const alignedEmail = forceUserAsFrom ? config.user : config.fromEmail || config.user;
   let finalFrom = `"${config.displayName}" <${alignedEmail}>`;
   let finalAddress = alignedEmail;
@@ -383,9 +383,197 @@ function resolveMoxSender(
 
   return {
     from: finalFrom,
-    replyTo: config.fromEmail || config.user,
+    replyTo: config.role === 'noreply' ? undefined : config.fromEmail || config.user,
     address: finalAddress,
   };
+}
+
+function escapeHtmlBasic(input: string): string {
+  return String(input || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function resolveEmailLogoPath(): string | null {
+  const candidates = [
+    path.join(process.cwd(), 'public', 'email-logo.png'),
+    '/app/public/email-logo.png',
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+export interface BrandedEmailTemplateOptions {
+  role?: EmailRole;
+  badgeText?: string;
+  heroTitle: string;
+  heroAccent?: string;
+  heroSubtitle?: string;
+  bodyHtml: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+}
+
+/**
+ * Render a SearchBiz.co.za branded HTML email matching the live website's
+ * white header + emerald magnifying-glass logo lockup + #052e22 hero banner.
+ */
+export function renderSearchBizEmailHtml(opts: BrandedEmailTemplateOptions): string {
+  const role: EmailRole = opts.role || 'admin';
+  const noreplyEmail = getMailboxAddress('noreply');
+  const helpEmail = getMailboxAddress('help');
+  const aiEmail = getMailboxAddress('ai');
+  const adminEmail = getMailboxAddress('admin');
+
+  const roleBadgeMap: Record<EmailRole, { label: string; bg: string; border: string; color: string; heroBadge: string }> = {
+    noreply: {
+      label: '2FA NO-REPLY',
+      bg: '#fffbeb',
+      border: '#fde68a',
+      color: '#92400e',
+      heroBadge: 'South Africa Directory &bull; 2FA Security',
+    },
+    ai: {
+      label: 'AI ASSISTANT',
+      bg: '#ecfdf5',
+      border: '#a7f3d0',
+      color: '#047857',
+      heroBadge: 'South Africa Directory &bull; AI Desk',
+    },
+    help: {
+      label: 'SUPPORT DESK',
+      bg: '#ecfdf5',
+      border: '#a7f3d0',
+      color: '#047857',
+      heroBadge: 'South Africa Directory &bull; Support Desk',
+    },
+    admin: {
+      label: 'ADMINISTRATION',
+      bg: '#ecfdf5',
+      border: '#a7f3d0',
+      color: '#047857',
+      heroBadge: 'South Africa Directory &bull; Official Notice',
+    },
+  };
+
+  const theme = roleBadgeMap[role];
+  const heroBadge = opts.badgeText || theme.heroBadge;
+  const year = new Date().getFullYear();
+
+  const noReplyBannerHtml =
+    role === 'noreply'
+      ? `
+        <div style="margin-top: 20px; background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px 14px;">
+          <p style="margin: 0; font-size: 12px; line-height: 1.55; color: #92400e;">
+            <strong>Do Not Reply (2FA Only):</strong> <strong>${noreplyEmail}</strong> is a send-only security address and rejects all replies. Need help? Contact <a href="mailto:${helpEmail}" style="color: #059669; font-weight: 700; text-decoration: none;">${helpEmail}</a>.
+          </p>
+        </div>`
+      : '';
+
+  const ctaHtml =
+    opts.ctaLabel && opts.ctaUrl
+      ? `
+        <div style="text-align: center; margin: 24px 0 8px 0;">
+          <a href="${opts.ctaUrl}" style="display: inline-block; background-color: #059669; color: #ffffff; padding: 13px 26px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 14px; letter-spacing: 0.01em;">${opts.ctaLabel}</a>
+        </div>`
+      : '';
+
+  const footerRoleLine =
+    role === 'noreply'
+      ? `Automated 2FA Security Gateway (${noreplyEmail} &bull; No-Reply Only) &bull; Support: <a href="mailto:${helpEmail}" style="color: #059669; text-decoration: none; font-weight: 600;">${helpEmail}</a>`
+      : role === 'ai'
+        ? `Dispatched by SearchBiz AI (<a href="mailto:${aiEmail}" style="color: #059669; text-decoration: none; font-weight: 600;">${aiEmail}</a>) &bull; <a href="https://searchbiz.co.za" style="color: #059669; text-decoration: none; font-weight: 600;">searchbiz.co.za</a>`
+        : role === 'help'
+          ? `SearchBiz Support Desk (<a href="mailto:${helpEmail}" style="color: #059669; text-decoration: none; font-weight: 600;">${helpEmail}</a>) &bull; Reply directly to this email for help`
+          : `SearchBiz Administration (<a href="mailto:${adminEmail}" style="color: #059669; text-decoration: none; font-weight: 600;">${adminEmail}</a>) &bull; POPIA &amp; Direct Marketing Compliance`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SearchBiz.co.za</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f8fafc; padding: 20px 10px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 580px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px; overflow: hidden;">
+          <!-- Website Header Lockup -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 16px 22px; border-bottom: 1px solid #e2e8f0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td width="44" valign="middle">
+                    <a href="https://searchbiz.co.za" style="text-decoration: none;">
+                      <img src="cid:searchbiz-logo" width="44" height="44" alt="SearchBiz" style="display: block; width: 44px; height: 44px; border-radius: 10px; border: 0;" />
+                    </a>
+                  </td>
+                  <td valign="middle" style="padding-left: 12px;">
+                    <a href="https://searchbiz.co.za" style="text-decoration: none;">
+                      <div style="font-size: 20px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: #0f172a;">Search<span style="color: #059669;">Biz</span>.co.za</div>
+                      <div style="font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #64748b; margin-top: 3px;">SOUTH AFRICA</div>
+                    </a>
+                  </td>
+                  <td align="right" valign="middle">
+                    <span style="display: inline-block; background-color: ${theme.bg}; border: 1px solid ${theme.border}; color: ${theme.color}; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 5px 10px; border-radius: 9999px; white-space: nowrap;">${theme.label}</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Deep Forest-Emerald Website Hero Banner -->
+          <tr>
+            <td style="background-color: #052e22; background-image: linear-gradient(135deg, #052e22 0%, #0a4233 100%); padding: 26px 24px; color: #ffffff;">
+              <div style="display: inline-block; background-color: #064e3b; border: 1px solid #047857; color: #34d399; font-size: 11px; font-weight: 700; letter-spacing: 0.03em; padding: 5px 12px; border-radius: 9999px; margin-bottom: 12px;">
+                &#10022; ${heroBadge}
+              </div>
+              <h1 style="margin: 0; font-size: 24px; line-height: 1.25; font-weight: 800; letter-spacing: -0.02em; color: #ffffff;">
+                ${opts.heroTitle}${opts.heroAccent ? ` <span style="color: #34d399;">${opts.heroAccent}</span>` : ''}
+              </h1>
+              ${opts.heroSubtitle ? `<p style="margin: 8px 0 0 0; font-size: 13.5px; line-height: 1.55; color: #cbd5e1;">${opts.heroSubtitle}</p>` : ''}
+            </td>
+          </tr>
+
+          <!-- Email Body -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 24px; color: #1e293b; font-size: 14px; line-height: 1.65;">
+              ${opts.bodyHtml}
+              ${ctaHtml}
+              ${noReplyBannerHtml}
+            </td>
+          </tr>
+
+          <!-- Website Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 18px 24px; text-align: center;">
+              <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #0f172a;">
+                Search<span style="color: #059669;">Biz</span>.co.za &bull; South Africa Business Directory
+              </p>
+              <p style="margin: 0; font-size: 11px; line-height: 1.6; color: #64748b;">
+                ${footerRoleLine}
+              </p>
+              <p style="margin: 6px 0 0 0; font-size: 11px; color: #94a3b8;">
+                &copy; ${year} SearchBiz.co.za &bull; All Rights Reserved
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 const workingCandidateByRole = new Map<string, TransportCandidate>();
@@ -536,25 +724,55 @@ async function dispatchWithConfig(
     }
   }
 
+  const isNoReplyRole = config.role === 'noreply' || opts.role === 'noreply';
+  const effectiveHtml = opts.html || '';
+  const attachments = Array.isArray(opts.attachments) ? [...opts.attachments] : [];
+  if (effectiveHtml.includes('cid:searchbiz-logo')) {
+    const hasLogo = attachments.some((att) => att && att.cid === 'searchbiz-logo');
+    const logoPath = resolveEmailLogoPath();
+    if (!hasLogo && logoPath) {
+      attachments.push({
+        filename: 'searchbiz-logo.png',
+        path: logoPath,
+        cid: 'searchbiz-logo',
+        contentType: 'image/png',
+        contentDisposition: 'inline',
+      });
+    }
+  }
+
   const attemptErrors: string[] = [];
 
   for (const candidate of candidates) {
     const transporter = createNodemailerTransporter(config, candidate);
     try {
       const aligned = resolveMoxSender(config, opts.from, false);
+      const resolvedReplyTo = isNoReplyRole
+        ? undefined
+        : opts.replyTo || aligned.replyTo;
+
       const mailOptions: nodemailer.SendMailOptions = {
         from: aligned.from,
         sender: aligned.address,
         to: opts.to,
-        replyTo: opts.replyTo || aligned.replyTo,
+        ...(resolvedReplyTo ? { replyTo: resolvedReplyTo } : {}),
         subject: opts.subject,
         html: opts.html,
         text: opts.text || (opts.html ? htmlToCleanText(opts.html) : ''),
         bcc: opts.bcc,
-        attachments: opts.attachments,
+        attachments: attachments.length > 0 ? attachments : undefined,
         headers: {
           'X-Entity-Ref-ID': crypto.randomUUID(),
-          'X-Auto-Response-Suppress': 'OOF, AutoReply',
+          ...(isNoReplyRole
+            ? {
+                'Auto-Submitted': 'auto-generated',
+                Precedence: 'bulk',
+                'X-Auto-Response-Suppress': 'All',
+                'X-SearchBiz-NoReply': '2fa-only',
+              }
+            : {
+                'X-Auto-Response-Suppress': 'OOF, AutoReply',
+              }),
         },
       };
 
@@ -572,11 +790,14 @@ async function dispatchWithConfig(
           aligned.address.toLowerCase() !== config.user.toLowerCase()
         ) {
           const strictAligned = resolveMoxSender(config, opts.from, true);
+          const strictReplyTo = isNoReplyRole
+            ? undefined
+            : opts.replyTo || aligned.address;
           const info = await transporter.sendMail({
             ...mailOptions,
             from: strictAligned.from,
             sender: strictAligned.address,
-            replyTo: opts.replyTo || aligned.address,
+            ...(strictReplyTo ? { replyTo: strictReplyTo } : { replyTo: undefined }),
           });
           workingCandidateByRole.set(cacheKey, candidate);
           transporter.close();
@@ -617,7 +838,19 @@ export async function sendEmail(
     return { success: false, error: errMsg };
   }
 
-  const primaryRes = await dispatchWithConfig(config, opts);
+  // Ensure even plain-text calls (e.g., Telegram /send_email) carry the branded website layout & logo
+  const preparedOpts: SendEmailOptions = opts.html
+    ? opts
+    : {
+        ...opts,
+        html: renderSearchBizEmailHtml({
+          role,
+          heroTitle: escapeHtmlBasic(opts.subject || 'SearchBiz Notification'),
+          bodyHtml: `<div style="white-space: pre-wrap; color: #334155;">${escapeHtmlBasic(opts.text || '')}</div>`,
+        }),
+      };
+
+  const primaryRes = await dispatchWithConfig(config, preparedOpts);
   if (primaryRes.success) {
     return { success: true, messageId: primaryRes.messageId };
   }
@@ -631,11 +864,12 @@ export async function sendEmail(
       !PLACEHOLDER_PASSWORDS.has(adminConfig.pass) &&
       (adminConfig.user !== config.user || adminConfig.pass !== config.pass)
     ) {
-      const roleFrom = opts.from || `"${config.displayName}" <${config.fromEmail}>`;
+      const roleFrom = preparedOpts.from || `"${config.displayName}" <${config.fromEmail}>`;
       const fallbackRes = await dispatchWithConfig(adminConfig, {
-        ...opts,
+        ...preparedOpts,
+        role,
         from: roleFrom,
-        replyTo: opts.replyTo || config.fromEmail,
+        replyTo: role === 'noreply' ? undefined : preparedOpts.replyTo || config.fromEmail,
       });
       if (fallbackRes.success) {
         return { success: true, messageId: fallbackRes.messageId };
@@ -657,12 +891,19 @@ export async function sendOtpEmailDetailed(
   const noreplyEmail = getMailboxAddress('noreply');
   const helpEmail = getMailboxAddress('help');
 
-  const title =
+  const heroTitle =
     type === 'login'
-      ? 'Your SearchBiz Login Code'
+      ? 'Your SearchBiz'
       : type === 'resend'
-        ? 'Your SearchBiz Verification Code'
-        : 'Confirm Your SearchBiz Email';
+        ? 'Your Verification'
+        : 'Confirm Your';
+
+  const heroAccent =
+    type === 'login'
+      ? 'Login Code'
+      : type === 'resend'
+        ? 'Security Code'
+        : 'SearchBiz Email';
 
   const introText =
     type === 'login'
@@ -677,7 +918,7 @@ export async function sendOtpEmailDetailed(
         : 'Confirm your SearchBiz email';
 
   const text = [
-    title,
+    `${heroTitle} ${heroAccent}`,
     '',
     'Hello,',
     '',
@@ -685,33 +926,38 @@ export async function sendOtpEmailDetailed(
     '',
     `Code: ${otpCode}`,
     '',
-    'This code is valid for 10 minutes.',
-    'If you did not request this sign-in, you can ignore this email.',
-    `Need help? Contact ${helpEmail}`,
+    'This code expires in 10 minutes.',
+    'If you did not request this sign-in, you can safely ignore this message.',
+    `Do not reply to ${noreplyEmail} (send-only 2FA address). Support: ${helpEmail}`,
     '',
     'SearchBiz.co.za',
   ].join('\n');
 
-  const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px; color: #1e293b; margin: 0 auto; background: #ffffff;">
-      <p style="color: #052e22; font-size: 18px; font-weight: 700; margin: 0 0 16px 0;">SearchBiz.co.za</p>
-      <p style="font-size: 15px; font-weight: 600; color: #0f172a; margin: 0 0 10px 0;">${title}</p>
-      <p style="font-size: 14px; line-height: 1.6; color: #334155; margin: 0 0 16px 0;">Hello,</p>
-      <p style="font-size: 14px; line-height: 1.6; color: #334155; margin: 0 0 18px 0;">${introText}</p>
-      <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; text-align: center; margin: 18px 0;">
-        <p style="margin: 0; font-size: 28px; letter-spacing: 6px; color: #047857; font-family: monospace; font-weight: 700;">${otpCode}</p>
-      </div>
-      <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin: 0 0 8px 0;">
-        This code expires in 10 minutes.
-      </p>
-      <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin: 0 0 8px 0;">
-        If you did not request this sign-in, you can safely ignore this message.
-      </p>
-      <p style="font-size: 11px; color: #94a3b8; line-height: 1.5; margin: 12px 0 0 0; border-top: 1px solid #e2e8f0; padding-top: 10px;">
-        Automated security notice from ${noreplyEmail} &bull; Support: <a href="mailto:${helpEmail}" style="color: #059669;">${helpEmail}</a>
-      </p>
+  const spacedCode = otpCode.split('').join(' ');
+
+  const bodyHtml = `
+    <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 700; color: #0f172a;">Hello,</p>
+    <p style="margin: 0 0 18px 0; font-size: 14px; line-height: 1.65; color: #334155;">${introText}</p>
+    <div style="background-color: #052e22; border: 2px solid #10b981; border-radius: 14px; padding: 20px 16px; text-align: center; margin: 18px 0;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #34d399; margin-bottom: 8px;">6-Digit Verification Code</div>
+      <div style="margin: 0; font-size: 32px; letter-spacing: 6px; color: #ffffff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 800;">${spacedCode}</div>
     </div>
+    <p style="font-size: 13px; color: #475569; line-height: 1.55; margin: 0 0 6px 0;">
+      This code expires in <strong>10 minutes</strong>.
+    </p>
+    <p style="font-size: 13px; color: #64748b; line-height: 1.55; margin: 0;">
+      If you did not request this sign-in, you can safely ignore this message.
+    </p>
   `;
+
+  const html = renderSearchBizEmailHtml({
+    role: 'noreply',
+    badgeText: 'South Africa Directory &bull; 2FA Verification',
+    heroTitle,
+    heroAccent,
+    heroSubtitle: 'Two-factor account protection for SearchBiz.co.za',
+    bodyHtml,
+  });
 
   return await sendEmail({
     role: 'noreply',
@@ -719,8 +965,7 @@ export async function sendOtpEmailDetailed(
     subject,
     html,
     text,
-    from: `"SearchBiz Auth" <${noreplyEmail}>`,
-    replyTo: noreplyEmail,
+    from: `"SearchBiz 2FA (No-Reply)" <${noreplyEmail}>`,
   });
 }
 
@@ -750,29 +995,29 @@ export async function sendPasswordResetEmailDetailed(
     resetLink,
     '',
     'If you did not request this reset, you can safely ignore this email.',
-    `Support: ${helpEmail}`,
+    `Do not reply to ${noreplyEmail} (send-only 2FA address). Support: ${helpEmail}`,
   ].join('\n');
 
-  const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 0; background-color: #f8fafc;">
-      <div style="background-color: #ffffff; padding: 24px; text-align: center; border-radius: 12px 12px 0 0; border-bottom: 3px solid #059669;">
-         <h1 style="color: #0f172a; margin: 0; font-size: 24px; font-weight: bold; letter-spacing: -0.5px;">SearchBiz.co.za</h1>
-         <p style="color: #059669; margin: 4px 0 0 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">South Africa Business Directory</p>
-      </div>
-      <div style="background-color: #ffffff; padding: 32px 24px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; border-radius: 0 0 12px 12px;">
-        <h2 style="color: #0f172a; margin-top: 0; margin-bottom: 16px; font-size: 20px;">Password Reset Request</h2>
-        <p style="color: #334155; font-size: 16px; line-height: 24px; margin-bottom: 16px;">Hello,</p>
-        <p style="color: #334155; font-size: 16px; line-height: 24px; margin-bottom: 24px;">You requested a password reset for your SearchBiz account. Please click the button below to reset your password. This link is valid for 1 hour.</p>
-        <div style="text-align: center; margin-bottom: 32px; margin-top: 32px;">
-          <a href="${resetLink}" style="background-color: #059669; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; display: inline-block;">Reset Password</a>
-        </div>
-        <p style="color: #64748b; font-size: 14px; line-height: 20px; border-top: 1px solid #e2e8f0; padding-top: 24px;">If you did not request this reset, you can safely ignore this email. Your password will remain unchanged.</p>
-      </div>
-      <div style="padding: 24px; text-align: center;">
-        <p style="color: #94a3b8; font-size: 12px; margin: 0;">&copy; ${new Date().getFullYear()} SearchBiz.co.za &bull; Sent via ${noreplyEmail} &bull; Support: <a href="mailto:${helpEmail}" style="color: #059669;">${helpEmail}</a></p>
-      </div>
-    </div>
+  const bodyHtml = `
+    <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 700; color: #0f172a;">Hello,</p>
+    <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 1.65; color: #334155;">
+      You requested a password reset for your SearchBiz account. Click the button below to choose a new password. This link is valid for <strong>1 hour</strong>.
+    </p>
+    <p style="margin: 18px 0 0 0; font-size: 12.5px; color: #64748b; line-height: 1.55; border-top: 1px solid #e2e8f0; padding-top: 16px;">
+      If you did not request this reset, you can safely ignore this email. Your password will remain unchanged.
+    </p>
   `;
+
+  const html = renderSearchBizEmailHtml({
+    role: 'noreply',
+    badgeText: 'South Africa Directory &bull; Security Reset',
+    heroTitle: 'Password Reset',
+    heroAccent: 'Request',
+    heroSubtitle: 'Secure account recovery for your SearchBiz.co.za profile',
+    bodyHtml,
+    ctaLabel: 'Reset Password &rarr;',
+    ctaUrl: resetLink,
+  });
 
   return await sendEmail({
     role: 'noreply',
@@ -780,8 +1025,7 @@ export async function sendPasswordResetEmailDetailed(
     subject: 'SearchBiz Password Reset Request',
     html,
     text,
-    from: `"SearchBiz Auth" <${noreplyEmail}>`,
-    replyTo: noreplyEmail,
+    from: `"SearchBiz 2FA (No-Reply)" <${noreplyEmail}>`,
   });
 }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendEmail, getSmtpConfig, getMailboxAddress } from '@/lib/email-service';
+import { sendEmail, getSmtpConfig, getMailboxAddress, renderSearchBizEmailHtml } from '@/lib/email-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,20 +94,15 @@ export async function POST(req: NextRequest) {
 
     const sender = from || `"SearchBiz AI" <${aiConfig.fromEmail}>`;
 
-    const htmlContent = html || `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b;">
-        <div style="border-bottom: 2px solid #059669; padding-bottom: 12px; margin-bottom: 16px;">
-          <h2 style="color: #064e3b; margin: 0; font-size: 20px;">SearchBiz Notification</h2>
-        </div>
-        <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
-${emailContent}
-        </div>
-        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-        <p style="font-size: 11px; color: #94a3b8; margin: 0; text-align: center;">
-          Sent automatically via SearchBiz AI (${aiConfig.fromEmail}) &bull; searchbiz.co.za
-        </p>
-      </div>
-    `;
+    const htmlContent = html || renderSearchBizEmailHtml({
+      role: 'ai',
+      badgeText: 'South Africa Directory &bull; AI Executive Desk',
+      heroTitle: subject.trim(),
+      heroSubtitle: 'Smart Local Business Directory &amp; AI Outreach',
+      bodyHtml: `<div style="font-size: 14px; line-height: 1.7; color: #334155; white-space: pre-wrap;">${emailContent}</div>`,
+      ctaLabel: 'Visit SearchBiz.co.za &rarr;',
+      ctaUrl: 'https://searchbiz.co.za',
+    });
 
     const sendRes = await sendEmail({
       role: 'ai',

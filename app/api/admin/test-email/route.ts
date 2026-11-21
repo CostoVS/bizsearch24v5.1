@@ -3,7 +3,9 @@ import {
   verifySmtpConnection,
   sendEmail,
   getSmtpConfig,
+  getMailboxAddress,
   getAllMoxMailboxesSummary,
+  renderSearchBizEmailHtml,
   type EmailRole,
 } from '@/lib/email-service';
 
@@ -34,7 +36,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const role = parseRole(body.role);
     const config = getSmtpConfig(role);
-    const targetEmail = body.to ? String(body.to).trim() : config.fromEmail;
+    const defaultTarget = role === 'noreply' ? getMailboxAddress('admin') : config.fromEmail;
+    const targetEmail = body.to ? String(body.to).trim() : defaultTarget;
 
     const verifyResult = await verifySmtpConnection(role);
     if (!verifyResult.success) {
@@ -51,25 +54,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const testHtml = renderSearchBizEmailHtml({
+      role,
+      heroTitle: 'SearchBiz Mox Mail',
+      heroAccent: 'Verified Active',
+      heroSubtitle: `Live verification test for the ${role} mailbox (${config.fromEmail})`,
+      bodyHtml: `
+        <p style="margin: 0 0 14px 0; color: #334155;">
+          Your SearchBiz Mox Mail Server connection for the <strong>${role}</strong> mailbox is connected, authenticated, and operating normally.
+        </p>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; font-size: 13px; line-height: 1.8; color: #1e293b;">
+          <div><strong>Mail Server:</strong> Mox (${config.host}:${config.port}, ${config.secure ? 'SSL/465' : 'TLS/587'})</div>
+          <div><strong>Role:</strong> ${role}</div>
+          <div><strong>Authenticated Account:</strong> ${config.user}</div>
+          <div><strong>Sender Identity:</strong> ${config.fromEmail}</div>
+          <div><strong>Reply Policy:</strong> ${role === 'noreply' ? 'Send-Only (No Replies Accepted)' : 'Replies Enabled'}</div>
+          <div><strong>Test Target:</strong> ${targetEmail}</div>
+          <div><strong>Timestamp:</strong> ${new Date().toLocaleString()}</div>
+        </div>
+      `,
+      ctaLabel: 'Open SearchBiz.co.za &rarr;',
+      ctaUrl: 'https://searchbiz.co.za',
+    });
+
     const testResult = await sendEmail({
       role,
       to: targetEmail,
       subject: `SearchBiz Mox SMTP Verification [${role}] (${new Date().toLocaleTimeString()})`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 500px; padding: 24px; border: 1px solid #10b981; border-radius: 12px; background: #ffffff;">
-          <h2 style="color: #052e22; margin-top: 0;">SearchBiz Mox Mail Test Successful</h2>
-          <p style="color: #334155; line-height: 1.6;">Your SearchBiz Mox Mail Server connection for the <strong>${role}</strong> mailbox is connected, authenticated, and operating normally.</p>
-          <ul style="color: #475569; font-size: 13px; line-height: 1.8;">
-            <li><strong>Mail Server:</strong> Mox (${config.host}:${config.port}, ${config.secure ? 'SSL/465' : 'TLS/587'})</li>
-            <li><strong>Role:</strong> ${role}</li>
-            <li><strong>Authenticated Account:</strong> ${config.user}</li>
-            <li><strong>Sender Identity:</strong> ${config.fromEmail}</li>
-            <li><strong>Test Target:</strong> ${targetEmail}</li>
-            <li><strong>Timestamp:</strong> ${new Date().toLocaleString()}</li>
-          </ul>
-          <p style="color: #10b981; font-weight: bold; margin-bottom: 0;">Mox email subsystem is operational.</p>
-        </div>
-      `,
+      html: testHtml,
       text: `SearchBiz Mox Mail Test Successful [${role}]. Server: ${config.host}:${config.port}. Authenticated as: ${config.user}. Timestamp: ${new Date().toLocaleString()}`,
     });
 

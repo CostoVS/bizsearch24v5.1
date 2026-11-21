@@ -1868,33 +1868,51 @@ export default function AdminBusinessHub({ ads = [], onRefreshAds }: AdminBusine
                 Live Sample Recipient Preview
               </span>
               
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4 text-xs">
-                <div className="border-b border-emerald-500 pb-3 flex items-center justify-between">
-                  <div>
-                    <h4 className="font-extrabold text-base text-emerald-950 font-display">SearchBiz.co.za</h4>
-                    <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Official Administration Dispatch</p>
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm text-xs">
+                <div className="bg-white px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src="/email-logo.png"
+                      alt="SearchBiz.co.za"
+                      className="w-9 h-9 rounded-lg shrink-0"
+                    />
+                    <div>
+                      <h4 className="font-extrabold text-base text-slate-900 font-display leading-none">
+                        Search<span className="text-emerald-600">Biz</span>.co.za
+                      </h4>
+                      <p className="text-[8px] uppercase tracking-[0.16em] text-slate-500 font-bold mt-1">SOUTH AFRICA</p>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-400">From: {SENDER_EMAIL}</span>
+                  <span className="text-[9px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    ADMINISTRATION
+                  </span>
                 </div>
 
-                <div className="space-y-1 text-slate-600">
-                  <p><strong>To:</strong> sample_partner@business.co.za (Apex Services)</p>
-                  <p><strong>Subject:</strong> {emailSubject.replace(/\{business_name\}/g, "Apex Services").replace(/\{city\}/g, "Johannesburg")}</p>
+                <div className="bg-[#052e22] px-5 py-4 text-white">
+                  <span className="inline-block bg-[#064e3b] border border-emerald-700 text-emerald-300 text-[9px] font-bold px-2.5 py-0.5 rounded-full mb-2">
+                    &#10022; South Africa Directory &bull; Official Registry Notice
+                  </span>
+                  <p className="font-extrabold text-sm leading-snug text-white">
+                    {emailSubject.replace(/\{business_name\}/g, "Apex Services").replace(/\{city\}/g, "Johannesburg")}
+                  </p>
+                  <p className="text-[11px] text-slate-300 mt-1">From: {SENDER_EMAIL} &bull; To: sample_partner@business.co.za</p>
                 </div>
 
-                <div className="p-4 bg-slate-50 rounded-xl font-sans text-slate-700 whitespace-pre-wrap leading-relaxed text-xs border border-slate-100">
-                  {emailBody
-                    .replace(/\{business_name\}/g, "Apex Services")
-                    .replace(/\{city\}/g, "Johannesburg")
-                    .replace(/\{suburb\}/g, "Sandton")
-                    .replace(/\{postal_code\}/g, "2196")
-                    .replace(/\{province\}/g, "Gauteng")
-                    .replace(/\{category\}/g, "Building & Trades")
-                    .replace(/\{listing_url\}/g, "https://searchbiz.co.za/directory?q=Apex+Services")}
-                </div>
+                <div className="p-5 space-y-4">
+                  <div className="p-4 bg-slate-50 rounded-xl font-sans text-slate-700 whitespace-pre-wrap leading-relaxed text-xs border border-slate-100">
+                    {emailBody
+                      .replace(/\{business_name\}/g, "Apex Services")
+                      .replace(/\{city\}/g, "Johannesburg")
+                      .replace(/\{suburb\}/g, "Sandton")
+                      .replace(/\{postal_code\}/g, "2196")
+                      .replace(/\{province\}/g, "Gauteng")
+                      .replace(/\{category\}/g, "Building & Trades")
+                      .replace(/\{listing_url\}/g, "https://searchbiz.co.za/directory?q=Apex+Services")}
+                  </div>
 
-                <div className="pt-3 border-t border-slate-100 text-[10px] text-slate-400 text-center">
-                  Dispatched via SearchBiz South Africa &bull; {SENDER_EMAIL} &bull; POPIA &amp; Direct Marketing Compliance
+                  <div className="pt-3 border-t border-slate-100 text-[10px] text-slate-400 text-center">
+                    Dispatched via SearchBiz South Africa &bull; {SENDER_EMAIL} &bull; POPIA &amp; Direct Marketing Compliance
+                  </div>
                 </div>
               </div>
             </div>

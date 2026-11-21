@@ -4879,27 +4879,53 @@ def render_outreach_message(lead: dict, template_name: str = "default") -> Tuple
         wa_txt = wa_txt.replace(tag, val)
 
     body_html = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b; background-color: #ffffff;">
-        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
-            <h2 style="color: #0f172a; margin: 0; font-size: 18px;">SearchBiz South Africa &bull; Business Growth Invitation</h2>
+    <div style="margin: 0; padding: 18px 10px; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+      <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px; overflow: hidden; color: #1e293b;">
+        <div style="background-color: #ffffff; padding: 16px 22px; border-bottom: 1px solid #e2e8f0;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td width="44" valign="middle">
+                <a href="https://searchbiz.co.za" style="text-decoration: none;">
+                  <img src="https://searchbiz.co.za/email-logo.png" width="44" height="44" alt="SearchBiz" style="display: block; width: 44px; height: 44px; border-radius: 10px; border: 0;" />
+                </a>
+              </td>
+              <td valign="middle" style="padding-left: 12px;">
+                <div style="font-size: 20px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: #0f172a;">Search<span style="color: #059669;">Biz</span>.co.za</div>
+                <div style="font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #64748b; margin-top: 3px;">SOUTH AFRICA</div>
+              </td>
+              <td align="right" valign="middle">
+                <span style="display: inline-block; background-color: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 5px 10px; border-radius: 9999px;">AI ASSISTANT</span>
+              </td>
+            </tr>
+          </table>
         </div>
-        <p>Good day <strong>{html.escape(bname)}</strong>,</p>
-        <p>We found your business listed in <strong>{html.escape(bcity)}, {html.escape(bprov)}</strong> and would love to feature your <strong>{html.escape(bcat)}</strong> services on SearchBiz South Africa.</p>
-        <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 14px 18px; margin: 16px 0; border-radius: 4px;">
-            <h3 style="margin: 0 0 8px 0; font-size: 15px; color: #1e40af;">SearchBiz Verified Business Package (R199.00 / mo):</h3>
-            <ul style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: #334155;">
-                <li>Verified Listing in SearchBiz South African Directory</li>
-                <li>Unlimited Fast Smart Static Website Hosting</li>
-                <li>Unlimited Domain-Branded Email Accounts (@yourdomain.co.za)</li>
-                <li>Priority Local Search Placement & Direct WhatsApp / Phone Inquiries</li>
+        <div style="background-color: #052e22; background-image: linear-gradient(135deg, #052e22 0%, #0a4233 100%); padding: 24px; color: #ffffff;">
+          <div style="display: inline-block; background-color: #064e3b; border: 1px solid #047857; color: #34d399; font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 9999px; margin-bottom: 10px;">&#10022; South Africa Directory &bull; Business Growth</div>
+          <h2 style="margin: 0; font-size: 22px; font-weight: 800; color: #ffffff;">Business Growth <span style="color: #34d399;">Invitation</span></h2>
+          <p style="margin: 6px 0 0 0; font-size: 13px; color: #cbd5e1;">Official invitation for {html.escape(bname)}</p>
+        </div>
+        <div style="padding: 24px; font-size: 14px; line-height: 1.65;">
+          <p style="margin-top: 0;">Good day <strong>{html.escape(bname)}</strong>,</p>
+          <p>We found your business listed in <strong>{html.escape(bcity)}, {html.escape(bprov)}</strong> and would love to feature your <strong>{html.escape(bcat)}</strong> services on SearchBiz South Africa.</p>
+          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-left: 4px solid #059669; padding: 14px 18px; margin: 16px 0; border-radius: 10px;">
+            <h3 style="margin: 0 0 8px 0; font-size: 15px; color: #052e22;">SearchBiz Verified Business Package (R199.00 / mo):</h3>
+            <ul style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: #334155;">
+              <li>Verified Listing in SearchBiz South African Directory</li>
+              <li>Unlimited Fast Smart Static Website Hosting</li>
+              <li>Unlimited Domain-Branded Email Accounts (@yourdomain.co.za)</li>
+              <li>Priority Local Search Placement &amp; Direct WhatsApp / Phone Inquiries</li>
             </ul>
+          </div>
+          <p>Would you like us to activate your profile today?</p>
+          <div style="text-align: center; margin: 20px 0 6px 0;">
+            <a href="https://searchbiz.co.za" style="display: inline-block; background-color: #059669; color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 14px;">Visit SearchBiz.co.za &rarr;</a>
+          </div>
         </div>
-        <p>Would you like us to activate your profile today?</p>
-        <p style="margin-top: 24px; font-size: 13px; color: #64748b;">
-            Best regards,<br>
-            <strong>SearchBiz Executive Team</strong><br>
-            <a href="https://searchbiz.co.za" style="color: #2563eb; text-decoration: none;">searchbiz.co.za</a> | <a href="mailto:ai@searchbiz.co.za" style="color: #2563eb; text-decoration: none;">ai@searchbiz.co.za</a>
-        </p>
+        <div style="background-color: #f8fafc; padding: 16px 24px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #64748b;">
+          <strong style="color: #0f172a;">Search<span style="color: #059669;">Biz</span>.co.za &bull; South Africa Business Directory</strong><br/>
+          <a href="https://searchbiz.co.za" style="color: #059669; text-decoration: none; font-weight: 600;">searchbiz.co.za</a> &bull; <a href="mailto:ai@searchbiz.co.za" style="color: #059669; text-decoration: none; font-weight: 600;">ai@searchbiz.co.za</a>
+        </div>
+      </div>
     </div>
     """
 
@@ -17631,19 +17657,39 @@ Email: ai@searchbiz.co.za
 Website: https://searchbiz.co.za
 Durban • Johannesburg • Cape Town • South Africa"""
 
-                body_html = f"""<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 620px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; color: #1e293b; background: #ffffff;">
-  <div style="background: linear-gradient(135deg, #064e3b, #047857); padding: 28px; text-align: center; color: #ffffff;">
-    <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">SearchBiz South Africa</h1>
-    <p style="margin: 6px 0 0; font-size: 14px; opacity: 0.9;">Smart Local Business Directory &amp; Executive AI Partner</p>
+                body_html = f"""<div style="margin: 0; padding: 18px 10px; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<div style="max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 18px; overflow: hidden; color: #1e293b; background: #ffffff;">
+  <div style="background-color: #ffffff; padding: 16px 22px; border-bottom: 1px solid #e2e8f0;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+      <tr>
+        <td width="44" valign="middle">
+          <a href="https://searchbiz.co.za" style="text-decoration: none;">
+            <img src="https://searchbiz.co.za/email-logo.png" width="44" height="44" alt="SearchBiz" style="display: block; width: 44px; height: 44px; border-radius: 10px; border: 0;" />
+          </a>
+        </td>
+        <td valign="middle" style="padding-left: 12px;">
+          <div style="font-size: 20px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: #0f172a;">Search<span style="color: #059669;">Biz</span>.co.za</div>
+          <div style="font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #64748b; margin-top: 3px;">SOUTH AFRICA</div>
+        </td>
+        <td align="right" valign="middle">
+          <span style="display: inline-block; background-color: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 5px 10px; border-radius: 9999px;">AI ASSISTANT</span>
+        </td>
+      </tr>
+    </table>
   </div>
-  <div style="padding: 28px; font-size: 15px; line-height: 1.6;">
+  <div style="background-color: #052e22; background: linear-gradient(135deg, #052e22, #0a4233); padding: 26px 24px; color: #ffffff;">
+    <div style="display: inline-block; background-color: #064e3b; border: 1px solid #047857; color: #34d399; font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 9999px; margin-bottom: 10px;">&#10022; South Africa Directory &bull; AI Executive Desk</div>
+    <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: #ffffff;">SearchBiz <span style="color: #34d399;">South Africa</span></h1>
+    <p style="margin: 6px 0 0; font-size: 13.5px; color: #cbd5e1;">Smart Local Business Directory &amp; Executive AI Partner</p>
+  </div>
+  <div style="padding: 26px 24px; font-size: 14px; line-height: 1.65;">
     <p style="margin-top: 0;">Good day,</p>
     <p>I am writing to introduce <b>SearchBiz South Africa</b> (<a href="https://searchbiz.co.za" style="color: #059669; text-decoration: none; font-weight: 600;">searchbiz.co.za</a>) and our autonomous executive AI system, Hermes.</p>
     <p>SearchBiz connects verified local service providers, commercial enterprises, and consumers nationwide through a high-speed digital directory.</p>
     
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin: 20px 0;">
-      <h3 style="margin: 0 0 12px; color: #064e3b; font-size: 16px;">Core Platform Capabilities:</h3>
-      <ul style="margin: 0; padding-left: 20px; color: #334155; font-size: 14px; line-height: 1.8;">
+    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 18px; margin: 20px 0;">
+      <h3 style="margin: 0 0 12px; color: #052e22; font-size: 15px;">Core Platform Capabilities:</h3>
+      <ul style="margin: 0; padding-left: 20px; color: #334155; font-size: 13.5px; line-height: 1.8;">
         <li><b>Verified Directory Listings:</b> Connect directly with active South African customers.</li>
         <li><b>Unlimited Static Website Hosting:</b> Fast, secure, and maintenance-free from <b>R199.00 / month</b>.</li>
         <li><b>Official .co.za Domains:</b> Registrations from <b>R99.00 / year</b>.</li>
@@ -17654,16 +17700,17 @@ Durban • Johannesburg • Cape Town • South Africa"""
 
     <p>You can view our live platform and discover listed businesses across South Africa right now at:</p>
     <div style="text-align: center; margin: 24px 0;">
-      <a href="https://searchbiz.co.za" style="display: inline-block; background: #059669; color: #ffffff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;">Visit SearchBiz.co.za &rarr;</a>
+      <a href="https://searchbiz.co.za" style="display: inline-block; background: #059669; color: #ffffff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 14px;">Visit SearchBiz.co.za &rarr;</a>
     </div>
 
     <p style="margin-bottom: 0;">If you would like us to set up or verify your business listing, please reply directly to this email and our team will get it sorted for you immediately.</p>
   </div>
-  <div style="background: #f1f5f9; padding: 18px 28px; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; text-align: center;">
-    <b>SearchBiz Executive Team &amp; Hermes AI</b><br/>
-    Email: <a href="mailto:ai@searchbiz.co.za" style="color: #059669;">ai@searchbiz.co.za</a> &bull; Web: <a href="https://searchbiz.co.za" style="color: #059669;">searchbiz.co.za</a><br/>
+  <div style="background: #f8fafc; padding: 18px 24px; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; text-align: center;">
+    <b style="color: #0f172a;">Search<span style="color: #059669;">Biz</span>.co.za &bull; Executive Team &amp; Hermes AI</b><br/>
+    Email: <a href="mailto:ai@searchbiz.co.za" style="color: #059669; text-decoration: none; font-weight: 600;">ai@searchbiz.co.za</a> &bull; Web: <a href="https://searchbiz.co.za" style="color: #059669; text-decoration: none; font-weight: 600;">searchbiz.co.za</a><br/>
     Durban &bull; Johannesburg &bull; Cape Town &bull; South Africa
   </div>
+</div>
 </div>"""
             else:
                 send_telegram(chat_id, f"✍️ <b>Composing tailored executive email for:</b> <code>{target_email}</code>...")

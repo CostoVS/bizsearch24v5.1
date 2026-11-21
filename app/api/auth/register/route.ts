@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserByEmail, saveUser, getDeterministicSecretKey } from '@/lib/auth-service';
 import { saveOtp, generateOtp } from '@/lib/otp-service';
 import { readServerDb, writeServerDb } from '@/lib/bot-ad-service';
-import { sendOtpEmailDetailed, sendEmail, getMailboxAddress } from '@/lib/email-service';
+import { sendOtpEmailDetailed, sendEmail, getMailboxAddress, renderSearchBizEmailHtml } from '@/lib/email-service';
 import fs from 'fs';
 import path from 'path';
 
@@ -246,13 +246,16 @@ export async function POST(req: Request) {
 
       // Relay submission details securely to business owner email
       try {
-        const mailHtml = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; color: #1e293b;">
-            <h2 style="color: #052e22; font-size: 20px; border-bottom: 2px solid #052e22; padding-bottom: 12px; margin-top: 0;">New Premium Registration Application (${plan})</h2>
-            <p>Hello SearchBiz Admin,</p>
-            <p>A new user has signed up for the <strong>${plan} Plan</strong> and submitted verification documents.</p>
-            
-            <table style="width: 100%; border-collapse: collapse; margin: 18px 0;">
+        const mailHtml = renderSearchBizEmailHtml({
+          role: 'admin',
+          badgeText: `South Africa Directory &bull; ${plan} Plan`,
+          heroTitle: 'New Premium',
+          heroAccent: 'Signup Application',
+          heroSubtitle: `Verification submission from ${normalizedEmail}`,
+          bodyHtml: `
+            <p style="margin: 0 0 12px 0;">Hello SearchBiz Admin,</p>
+            <p style="margin: 0 0 16px 0;">A new user has signed up for the <strong>${plan} Plan</strong> and submitted verification documents.</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px;">
               <tr style="background-color: #f8fafc;">
                 <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">User Full Name:</td>
                 <td style="padding: 10px; border: 1px solid #e2e8f0;">${fullName}</td>
@@ -291,27 +294,28 @@ export async function POST(req: Request) {
               </tr>
               <tr>
                 <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">CIPC Proof:</td>
-                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${cipcDoc.name || 'Attached CIPC Doc'}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #059669; font-family: monospace;">${cipcDoc.name || 'Attached CIPC Doc'}</td>
               </tr>
               <tr style="background-color: #f8fafc;">
                 <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">SARS Copy:</td>
-                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${sarsDoc.name || 'Attached SARS Doc'}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #059669; font-family: monospace;">${sarsDoc.name || 'Attached SARS Doc'}</td>
               </tr>
               <tr>
                 <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Bank Statement:</td>
-                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${bankDoc.name || 'Attached Bank Doc'}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #059669; font-family: monospace;">${bankDoc.name || 'Attached Bank Doc'}</td>
               </tr>
               <tr style="background-color: #f8fafc;">
                 <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">Identification ID:</td>
-                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #16a34a; font-family: monospace;">${idDoc.name || 'Attached ID Doc'}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; color: #059669; font-family: monospace;">${idDoc.name || 'Attached ID Doc'}</td>
               </tr>
             </table>
-            
-            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 15px; text-align: center; margin-top: 24px;">
-              <p style="margin: 0; font-weight: bold; color: #14532d;">Go to the System Dashboard -> Premium Submissions tab to review and approve this user account.</p>
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px; text-align: center; margin-top: 18px;">
+              <p style="margin: 0; font-weight: 700; color: #064e3b; font-size: 13px;">Review and approve this user in System Dashboard &rarr; Premium Submissions.</p>
             </div>
-          </div>
-        `;
+          `,
+          ctaLabel: 'Review Submission &rarr;',
+          ctaUrl: 'https://searchbiz.co.za/admin',
+        });
 
         sendEmail({
           role: 'admin',

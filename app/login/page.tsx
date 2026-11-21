@@ -1101,6 +1101,8 @@ export default function LoginPage() {
                   </label>
                   <input
                     type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
                     required
                     maxLength={6}
                     className="block w-full text-center rounded-xl bg-slate-100 px-4 py-4 text-2xl font-mono tracking-widest text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all border border-transparent focus:border-emerald-500"

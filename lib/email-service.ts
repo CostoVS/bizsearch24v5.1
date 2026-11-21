@@ -421,6 +421,7 @@ export interface BrandedEmailTemplateOptions {
   bodyHtml: string;
   ctaLabel?: string;
   ctaUrl?: string;
+  compact?: boolean;
 }
 
 /**
@@ -496,6 +497,11 @@ export function renderSearchBizEmailHtml(opts: BrandedEmailTemplateOptions): str
           ? `SearchBiz Support Desk (<a href="mailto:${helpEmail}" style="color: #059669; text-decoration: none; font-weight: 600;">${helpEmail}</a>) &bull; Reply directly to this email for help`
           : `SearchBiz Administration (<a href="mailto:${adminEmail}" style="color: #059669; text-decoration: none; font-weight: 600;">${adminEmail}</a>) &bull; POPIA &amp; Direct Marketing Compliance`;
 
+  const headerPad = opts.compact ? '12px 16px' : '16px 20px';
+  const heroPad = opts.compact ? '16px 18px' : '22px 22px';
+  const bodyPad = opts.compact ? '18px 18px' : '22px 22px';
+  const heroSize = opts.compact ? '20px' : '23px';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -504,28 +510,28 @@ export function renderSearchBizEmailHtml(opts: BrandedEmailTemplateOptions): str
   <title>SearchBiz.co.za</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a;">
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f8fafc; padding: 20px 10px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f8fafc; padding: 14px 8px;">
     <tr>
       <td align="center">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 580px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px; overflow: hidden;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 560px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
           <!-- Website Header Lockup -->
           <tr>
-            <td style="background-color: #ffffff; padding: 16px 22px; border-bottom: 1px solid #e2e8f0;">
+            <td style="background-color: #ffffff; padding: ${headerPad}; border-bottom: 1px solid #e2e8f0;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                 <tr>
-                  <td width="44" valign="middle">
+                  <td width="38" valign="middle">
                     <a href="https://searchbiz.co.za" style="text-decoration: none;">
-                      <img src="cid:searchbiz-logo" width="44" height="44" alt="SearchBiz" style="display: block; width: 44px; height: 44px; border-radius: 10px; border: 0;" />
+                      <img src="cid:searchbiz-logo" width="38" height="38" alt="SearchBiz" style="display: block; width: 38px; height: 38px; border-radius: 9px; border: 0;" />
                     </a>
                   </td>
-                  <td valign="middle" style="padding-left: 12px;">
+                  <td valign="middle" style="padding-left: 10px; padding-right: 10px;">
                     <a href="https://searchbiz.co.za" style="text-decoration: none;">
-                      <div style="font-size: 20px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: #0f172a;">Search<span style="color: #059669;">Biz</span>.co.za</div>
-                      <div style="font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #64748b; margin-top: 3px;">SOUTH AFRICA</div>
+                      <div style="font-size: 17px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: #0f172a; white-space: nowrap;">Search<span style="color: #059669;">Biz</span>.co.za</div>
+                      <div style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #64748b; margin-top: 2px;">SOUTH AFRICA</div>
                     </a>
                   </td>
                   <td align="right" valign="middle">
-                    <span style="display: inline-block; background-color: ${theme.bg}; border: 1px solid ${theme.border}; color: ${theme.color}; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 5px 10px; border-radius: 9999px; white-space: nowrap;">${theme.label}</span>
+                    <span style="display: inline-block; background-color: ${theme.bg}; border: 1px solid ${theme.border}; color: ${theme.color}; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; padding: 4px 8px; border-radius: 9999px; white-space: nowrap;">${theme.label}</span>
                   </td>
                 </tr>
               </table>
@@ -534,20 +540,20 @@ export function renderSearchBizEmailHtml(opts: BrandedEmailTemplateOptions): str
 
           <!-- Deep Forest-Emerald Website Hero Banner -->
           <tr>
-            <td style="background-color: #052e22; background-image: linear-gradient(135deg, #052e22 0%, #0a4233 100%); padding: 26px 24px; color: #ffffff;">
-              <div style="display: inline-block; background-color: #064e3b; border: 1px solid #047857; color: #34d399; font-size: 11px; font-weight: 700; letter-spacing: 0.03em; padding: 5px 12px; border-radius: 9999px; margin-bottom: 12px;">
+            <td style="background-color: #052e22; background-image: linear-gradient(135deg, #052e22 0%, #0a4233 100%); padding: ${heroPad}; color: #ffffff;">
+              <div style="display: inline-block; background-color: #064e3b; border: 1px solid #047857; color: #34d399; font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; padding: 4px 10px; border-radius: 9999px; margin-bottom: 8px;">
                 &#10022; ${heroBadge}
               </div>
-              <h1 style="margin: 0; font-size: 24px; line-height: 1.25; font-weight: 800; letter-spacing: -0.02em; color: #ffffff;">
+              <h1 style="margin: 0; font-size: ${heroSize}; line-height: 1.25; font-weight: 800; letter-spacing: -0.02em; color: #ffffff;">
                 ${opts.heroTitle}${opts.heroAccent ? ` <span style="color: #34d399;">${opts.heroAccent}</span>` : ''}
               </h1>
-              ${opts.heroSubtitle ? `<p style="margin: 8px 0 0 0; font-size: 13.5px; line-height: 1.55; color: #cbd5e1;">${opts.heroSubtitle}</p>` : ''}
+              ${opts.heroSubtitle ? `<p style="margin: 5px 0 0 0; font-size: 13px; line-height: 1.45; color: #cbd5e1;">${opts.heroSubtitle}</p>` : ''}
             </td>
           </tr>
 
           <!-- Email Body -->
           <tr>
-            <td style="background-color: #ffffff; padding: 24px; color: #1e293b; font-size: 14px; line-height: 1.65;">
+            <td style="background-color: #ffffff; padding: ${bodyPad}; color: #1e293b; font-size: 14px; line-height: 1.6;">
               ${opts.bodyHtml}
               ${ctaHtml}
               ${noReplyBannerHtml}
@@ -556,14 +562,14 @@ export function renderSearchBizEmailHtml(opts: BrandedEmailTemplateOptions): str
 
           <!-- Website Footer -->
           <tr>
-            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 18px 24px; text-align: center;">
-              <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #0f172a;">
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 20px; text-align: center;">
+              <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: #0f172a;">
                 Search<span style="color: #059669;">Biz</span>.co.za &bull; South Africa Business Directory
               </p>
-              <p style="margin: 0; font-size: 11px; line-height: 1.6; color: #64748b;">
+              <p style="margin: 0; font-size: 11px; line-height: 1.55; color: #64748b;">
                 ${footerRoleLine}
               </p>
-              <p style="margin: 6px 0 0 0; font-size: 11px; color: #94a3b8;">
+              <p style="margin: 4px 0 0 0; font-size: 10.5px; color: #94a3b8;">
                 &copy; ${year} SearchBiz.co.za &bull; All Rights Reserved
               </p>
             </td>
@@ -917,14 +923,16 @@ export async function sendOtpEmailDetailed(
         ? 'Your SearchBiz verification code'
         : 'Confirm your SearchBiz email';
 
+  const cleanOtp = String(otpCode || '').replace(/\s+/g, '').trim();
+  const copyUrl = `https://searchbiz.co.za/copy-code?code=${encodeURIComponent(cleanOtp)}`;
+
   const text = [
     `${heroTitle} ${heroAccent}`,
     '',
-    'Hello,',
+    `Your SearchBiz verification code is: ${cleanOtp}`,
     '',
     introText,
-    '',
-    `Code: ${otpCode}`,
+    `Auto-copy link: ${copyUrl}`,
     '',
     'This code expires in 10 minutes.',
     'If you did not request this sign-in, you can safely ignore this message.',
@@ -933,29 +941,27 @@ export async function sendOtpEmailDetailed(
     'SearchBiz.co.za',
   ].join('\n');
 
-  const spacedCode = otpCode.split('').join(' ');
-
   const bodyHtml = `
-    <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 700; color: #0f172a;">Hello,</p>
-    <p style="margin: 0 0 18px 0; font-size: 14px; line-height: 1.65; color: #334155;">${introText}</p>
-    <div style="background-color: #052e22; border: 2px solid #10b981; border-radius: 14px; padding: 20px 16px; text-align: center; margin: 18px 0;">
-      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #34d399; margin-bottom: 8px;">6-Digit Verification Code</div>
-      <div style="margin: 0; font-size: 32px; letter-spacing: 6px; color: #ffffff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 800;">${spacedCode}</div>
+    <p style="margin: 0 0 12px 0; font-size: 13.5px; line-height: 1.55; color: #334155;">${introText}</p>
+    <div style="background-color: #052e22; border: 1.5px solid #10b981; border-radius: 12px; padding: 14px 12px; text-align: center; margin: 12px 0;">
+      <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #34d399; margin-bottom: 6px;">6-Digit Verification Code</div>
+      <div style="margin: 0 auto 10px auto;">
+        <span style="display: inline-block; font-size: 26px; line-height: 1.2; letter-spacing: 5px; color: #ffffff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 800; white-space: nowrap; -webkit-user-select: all; user-select: all;">${cleanOtp}</span>
+      </div>
+      <a href="${copyUrl}" style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 12px; font-weight: 700; text-decoration: none; padding: 7px 14px; border-radius: 8px; white-space: nowrap;">Tap to Auto-Copy ${cleanOtp}</a>
     </div>
-    <p style="font-size: 13px; color: #475569; line-height: 1.55; margin: 0 0 6px 0;">
-      This code expires in <strong>10 minutes</strong>.
-    </p>
-    <p style="font-size: 13px; color: #64748b; line-height: 1.55; margin: 0;">
-      If you did not request this sign-in, you can safely ignore this message.
+    <p style="font-size: 12px; color: #475569; line-height: 1.5; margin: 10px 0 0 0;">
+      Expires in <strong>10 minutes</strong>. Ignore if you did not request this sign-in.
     </p>
   `;
 
   const html = renderSearchBizEmailHtml({
     role: 'noreply',
+    compact: true,
     badgeText: 'South Africa Directory &bull; 2FA Verification',
     heroTitle,
     heroAccent,
-    heroSubtitle: 'Two-factor account protection for SearchBiz.co.za',
+    heroSubtitle: `Your SearchBiz verification code is ${cleanOtp}`,
     bodyHtml,
   });
 

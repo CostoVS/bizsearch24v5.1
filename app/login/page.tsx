@@ -58,6 +58,27 @@ export default function LoginPage() {
     // Clear any previously saved plain-text credentials from localStorage so they don't auto-fill
     localStorage.removeItem("searchbiz_remembered_email");
     localStorage.removeItem("searchbiz_remembered_password");
+
+    // Restore pending email OTP / 2FA verification step if mobile browser reloaded the tab while checking Gmail
+    try {
+      const rawPending = sessionStorage.getItem("searchbiz_pending_login_v1");
+      if (rawPending) {
+        const parsed = JSON.parse(rawPending);
+        if (parsed && parsed.email && parsed.ts && Date.now() - parsed.ts < 10 * 60 * 1000) {
+          setEmail(parsed.email);
+          setIsRegister(Boolean(parsed.isRegister));
+          setHasSetup2FA(Boolean(parsed.hasSetup2FA));
+          setSecretKey(parsed.hasSetup2FA ? "" : parsed.secretKey || "");
+          if (parsed.step === "EMAIL_VERIFY" || parsed.step === "2FA") {
+            setStep(parsed.step);
+          }
+        } else {
+          sessionStorage.removeItem("searchbiz_pending_login_v1");
+        }
+      }
+    } catch {
+      // ignore sessionStorage errors
+    }
   }, []);
 
   useEffect(() => {
@@ -178,8 +199,34 @@ export default function LoginPage() {
             } else {
               setErrorMsg("");
             }
+            try {
+              sessionStorage.setItem(
+                "searchbiz_pending_login_v1",
+                JSON.stringify({
+                  email: data.user.email || normalizedEmail,
+                  step: "EMAIL_VERIFY",
+                  hasSetup2FA: false,
+                  secretKey: data.user.secretKey || "",
+                  isRegister: true,
+                  ts: Date.now(),
+                })
+              );
+            } catch {}
             setStep("EMAIL_VERIFY");
           } else {
+            try {
+              sessionStorage.setItem(
+                "searchbiz_pending_login_v1",
+                JSON.stringify({
+                  email: data.user.email || normalizedEmail,
+                  step: "2FA",
+                  hasSetup2FA: false,
+                  secretKey: data.user.secretKey || "",
+                  isRegister: true,
+                  ts: Date.now(),
+                })
+              );
+            } catch {}
             setStep("2FA");
           }
           
@@ -223,8 +270,34 @@ export default function LoginPage() {
             } else {
               setErrorMsg("");
             }
+            try {
+              sessionStorage.setItem(
+                "searchbiz_pending_login_v1",
+                JSON.stringify({
+                  email: data.user.email || normalizedEmail,
+                  step: "EMAIL_VERIFY",
+                  hasSetup2FA: enrolled2FA,
+                  secretKey: enrolled2FA ? "" : (data.user.secretKey || ""),
+                  isRegister: false,
+                  ts: Date.now(),
+                })
+              );
+            } catch {}
             setStep("EMAIL_VERIFY");
           } else {
+            try {
+              sessionStorage.setItem(
+                "searchbiz_pending_login_v1",
+                JSON.stringify({
+                  email: data.user.email || normalizedEmail,
+                  step: "2FA",
+                  hasSetup2FA: enrolled2FA,
+                  secretKey: enrolled2FA ? "" : (data.user.secretKey || ""),
+                  isRegister: false,
+                  ts: Date.now(),
+                })
+              );
+            } catch {}
             setStep("2FA");
           }
         } else {
@@ -258,6 +331,9 @@ export default function LoginPage() {
 
       if (res.ok) {
         if (data.user) {
+          try {
+            sessionStorage.removeItem("searchbiz_pending_login_v1");
+          } catch {}
           setHasSetup2FA(true);
           setSecretKey("");
           login(
@@ -309,6 +385,19 @@ export default function LoginPage() {
         if (data.email) {
           setEmail(data.email);
         }
+        try {
+          sessionStorage.setItem(
+            "searchbiz_pending_login_v1",
+            JSON.stringify({
+              email: data.email || email.trim().toLowerCase(),
+              step: "2FA",
+              hasSetup2FA,
+              secretKey,
+              isRegister,
+              ts: Date.now(),
+            })
+          );
+        } catch {}
         // Verification success! Transition to Google 2FA step.
         setStep("2FA");
         // Scroll to top of page as requested
@@ -1108,8 +1197,29 @@ export default function LoginPage() {
                     className="block w-full text-center rounded-xl bg-slate-100 px-4 py-4 text-2xl font-mono tracking-widest text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all border border-transparent focus:border-emerald-500"
                     placeholder="000000"
                     value={emailOtp}
-                    onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, ''))}
+                    onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setErrorMsg("");
+                      try {
+                        const clip = await navigator.clipboard.readText();
+                        const digits = clip.replace(/\D/g, "").slice(0, 6);
+                        if (digits.length === 6) {
+                          setEmailOtp(digits);
+                        } else {
+                          setErrorMsg("Clipboard does not contain a 6-digit code yet. Hold & copy the code in your email first.");
+                        }
+                      } catch {
+                        setErrorMsg("Tap inside the code box above and choose Paste.");
+                      }
+                    }}
+                    className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 py-2 px-3 text-xs font-semibold text-emerald-700 transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Paste 6-Digit Code from Clipboard
+                  </button>
                 </div>
 
                 <div className="pt-2">
@@ -1134,6 +1244,9 @@ export default function LoginPage() {
                   <button 
                     type="button" 
                     onClick={() => {
+                      try {
+                        sessionStorage.removeItem("searchbiz_pending_login_v1");
+                      } catch {}
                       setStep("LOGIN");
                       setSecretKey("");
                       setHasSetup2FA(false);
@@ -1267,6 +1380,9 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => {
+                      try {
+                        sessionStorage.removeItem("searchbiz_pending_login_v1");
+                      } catch {}
                       setStep("LOGIN");
                       setSecretKey("");
                       setHasSetup2FA(false);

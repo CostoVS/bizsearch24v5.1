@@ -924,7 +924,6 @@ export async function sendOtpEmailDetailed(
         : 'Confirm your SearchBiz email';
 
   const cleanOtp = String(otpCode || '').replace(/\s+/g, '').trim();
-  const copyUrl = `https://searchbiz.co.za/copy-code?code=${encodeURIComponent(cleanOtp)}`;
 
   const text = [
     `${heroTitle} ${heroAccent}`,
@@ -932,7 +931,6 @@ export async function sendOtpEmailDetailed(
     `Your SearchBiz verification code is: ${cleanOtp}`,
     '',
     introText,
-    `Auto-copy link: ${copyUrl}`,
     '',
     'This code expires in 10 minutes.',
     'If you did not request this sign-in, you can safely ignore this message.',
@@ -945,10 +943,10 @@ export async function sendOtpEmailDetailed(
     <p style="margin: 0 0 12px 0; font-size: 13.5px; line-height: 1.55; color: #334155;">${introText}</p>
     <div style="background-color: #052e22; border: 1.5px solid #10b981; border-radius: 12px; padding: 14px 12px; text-align: center; margin: 12px 0;">
       <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #34d399; margin-bottom: 6px;">6-Digit Verification Code</div>
-      <div style="margin: 0 auto 10px auto;">
-        <span style="display: inline-block; font-size: 26px; line-height: 1.2; letter-spacing: 5px; color: #ffffff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 800; white-space: nowrap; -webkit-user-select: all; user-select: all;">${cleanOtp}</span>
+      <div style="margin: 0 auto 6px auto;">
+        <span style="display: inline-block; background-color: #064e3b; border: 1px solid #047857; border-radius: 8px; padding: 8px 16px; font-size: 28px; line-height: 1.2; letter-spacing: 5px; color: #ffffff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 800; white-space: nowrap; -webkit-user-select: all; user-select: all;">${cleanOtp}</span>
       </div>
-      <a href="${copyUrl}" style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 12px; font-weight: 700; text-decoration: none; padding: 7px 14px; border-radius: 8px; white-space: nowrap;">Tap to Auto-Copy ${cleanOtp}</a>
+      <div style="font-size: 11px; color: #a7f3d0; font-weight: 500;">Tap &amp; hold code to copy, then paste in your browser</div>
     </div>
     <p style="font-size: 12px; color: #475569; line-height: 1.5; margin: 10px 0 0 0;">
       Expires in <strong>10 minutes</strong>. Ignore if you did not request this sign-in.
